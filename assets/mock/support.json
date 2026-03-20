@@ -1,0 +1,26 @@
+﻿[
+  {
+    "id": "FAQ-1",
+    "category": "Orders",
+    "question": "What should I do if restaurant prep is delayed?",
+    "answer": "Use the support/report issue flow or mark a wait-time event once your backend is connected. For now, this starter keeps the placeholder action ready in support screens."
+  },
+  {
+    "id": "FAQ-2",
+    "category": "Payments",
+    "question": "When are payouts settled?",
+    "answer": "Mock data assumes scheduled settlement windows. Replace this with your finance API and settlement schedule rules later."
+  },
+  {
+    "id": "FAQ-3",
+    "category": "Navigation",
+    "question": "How do I open maps externally?",
+    "answer": "The current build uses a placeholder map launcher service so you can connect Google Maps or another external navigation package later."
+  },
+  {
+    "id": "FAQ-4",
+    "category": "Safety",
+    "question": "Where can I reach emergency help?",
+    "answer": "Use the emergency support card in the help center. Wire it to your real operations or safety hotline before production."
+  }
+]

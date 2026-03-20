@@ -1,0 +1,14 @@
+﻿{
+  "name": "Arjun Malhotra",
+  "phone": "+91 98765 43210",
+  "city": "Bengaluru",
+  "vehicleType": "Performance bike",
+  "vehicleNumber": "KA 05 ZX 4821",
+  "licenseStatus": "Verified",
+  "shiftPreference": "Lunch + dinner band",
+  "rating": 4.9,
+  "completedDeliveries": 328,
+  "activeDeliveries": 1,
+  "todayEarnings": 2450,
+  "avatarInitials": "AM"
+}

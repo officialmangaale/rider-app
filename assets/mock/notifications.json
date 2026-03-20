@@ -1,0 +1,42 @@
+﻿[
+  {
+    "id": "NT-1",
+    "title": "Priority order unlocked",
+    "message": "A VIP order from The Ember Table is waiting with boosted payout.",
+    "type": "order",
+    "createdAt": "2026-03-15T18:25:00.000",
+    "isUnread": true
+  },
+  {
+    "id": "NT-2",
+    "title": "Payout credited",
+    "message": "Your latest settlement of Rs. 9,150 has been credited to the wallet.",
+    "type": "payout",
+    "createdAt": "2026-03-15T15:10:00.000",
+    "isUnread": true
+  },
+  {
+    "id": "NT-3",
+    "title": "Dinner band incentive",
+    "message": "Complete 3 more deliveries before 10 PM to unlock a bonus of Rs. 300.",
+    "type": "incentive",
+    "createdAt": "2026-03-15T13:30:00.000",
+    "isUnread": false
+  },
+  {
+    "id": "NT-4",
+    "title": "Support follow-up",
+    "message": "Your restaurant wait-time report has been reviewed by operations.",
+    "type": "support",
+    "createdAt": "2026-03-14T20:10:00.000",
+    "isUnread": false
+  },
+  {
+    "id": "NT-5",
+    "title": "App update preview",
+    "message": "Map layer integration hooks are available in the next release channel.",
+    "type": "update",
+    "createdAt": "2026-03-13T12:00:00.000",
+    "isUnread": false
+  }
+]

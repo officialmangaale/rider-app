@@ -1,0 +1,11 @@
+﻿{
+  "walletBalance": 18340,
+  "pendingPayout": 3650,
+  "settledPayout": 92500,
+  "bankAccountMasked": "HDFC •••• 1842",
+  "transactions": [
+    {"id": "TX-1", "title": "Weekly settlement", "amount": 9150, "status": "Settled", "createdAt": "2026-03-13T10:00:00.000"},
+    {"id": "TX-2", "title": "Tip boost credit", "amount": 540, "status": "Credited", "createdAt": "2026-03-14T22:00:00.000"},
+    {"id": "TX-3", "title": "Dinner incentive", "amount": 300, "status": "Pending", "createdAt": "2026-03-15T20:30:00.000"}
+  ]
+}

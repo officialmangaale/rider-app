@@ -1,0 +1,10 @@
+﻿{
+  "averageRating": 4.9,
+  "performanceScore": 97,
+  "compliments": ["Fast handoff", "Polite communication", "Excellent packaging care"],
+  "reviews": [
+    {"id": "RV-1", "reviewer": "Maya", "rating": 5.0, "comment": "Elegant delivery experience and quick OTP handoff.", "createdAt": "2026-03-15T17:10:00.000", "highlight": "Top tier delivery"},
+    {"id": "RV-2", "reviewer": "Karan", "rating": 4.8, "comment": "Reached the lobby before ETA and handled the order carefully.", "createdAt": "2026-03-14T20:40:00.000", "highlight": "Ahead of schedule"},
+    {"id": "RV-3", "reviewer": "Ira", "rating": 5.0, "comment": "Very professional rider and smooth communication with the concierge.", "createdAt": "2026-03-13T21:22:00.000", "highlight": "Professional service"}
+  ]
+}

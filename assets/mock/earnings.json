@@ -1,0 +1,22 @@
+﻿{
+  "daily": 2450,
+  "weekly": 13820,
+  "monthly": 48200,
+  "incentives": 1650,
+  "tips": 2840,
+  "bonus": 900,
+  "trend": [
+    {"label": "Mon", "amount": 1620},
+    {"label": "Tue", "amount": 1980},
+    {"label": "Wed", "amount": 1760},
+    {"label": "Thu", "amount": 2140},
+    {"label": "Fri", "amount": 2520},
+    {"label": "Sat", "amount": 2860},
+    {"label": "Sun", "amount": 2450}
+  ],
+  "payoutHistory": [
+    {"label": "7 Mar", "amount": 8200},
+    {"label": "10 Mar", "amount": 7400},
+    {"label": "13 Mar", "amount": 9150}
+  ]
+}

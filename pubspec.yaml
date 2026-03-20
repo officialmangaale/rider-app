@@ -1,0 +1,40 @@
+name: rydex_rider
+description: "Mangaale Express premium delivery rider app starter."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  fl_chart: ^0.69.0
+  flutter_animate: ^4.5.2
+  flutter_riverpod: ^2.6.1
+  flutter_svg: ^2.1.0
+  go_router: ^15.1.2
+  google_fonts: ^6.3.0
+  intl: ^0.20.2
+  shared_preferences: ^2.5.3
+  shimmer: ^3.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/brand_mark.svg
+    - assets/mock/profile.json
+    - assets/mock/orders.json
+    - assets/mock/active_order.json
+    - assets/mock/earnings.json
+    - assets/mock/notifications.json
+    - assets/mock/history.json
+    - assets/mock/payouts.json
+    - assets/mock/reviews.json
+    - assets/mock/support.json
