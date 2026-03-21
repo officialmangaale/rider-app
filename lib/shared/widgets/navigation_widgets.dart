@@ -507,3 +507,4 @@ class _RoutePainter extends CustomPainter {
     return oldDelegate.isDark != isDark;
   }
 }
+

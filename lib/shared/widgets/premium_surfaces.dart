@@ -29,6 +29,7 @@ class PremiumScaffold extends StatelessWidget {
     this.actions = const [],
     this.padding,
     this.withBackground = true,
+    this.onRefresh,
   });
 
   final String? title;
@@ -37,6 +38,7 @@ class PremiumScaffold extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? padding;
   final bool withBackground;
+  final Future<void> Function()? onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -56,6 +58,20 @@ class PremiumScaffold extends StatelessWidget {
             ),
           );
 
+    Widget body = Padding(
+      padding: padding ?? EdgeInsets.zero,
+      child: child,
+    );
+
+    if (onRefresh != null) {
+      body = RefreshIndicator(
+        onRefresh: onRefresh!,
+        child: CustomScrollView(
+          slivers: [SliverFillRemaining(hasScrollBody: true, child: body)],
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
@@ -66,12 +82,7 @@ class PremiumScaffold extends StatelessWidget {
             child: Column(
               children: [
                 header,
-                Expanded(
-                  child: Padding(
-                    padding: padding ?? EdgeInsets.zero,
-                    child: child,
-                  ),
-                ),
+                Expanded(child: body),
               ],
             ),
           ),

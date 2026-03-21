@@ -117,7 +117,7 @@ class ShimmerBlock extends StatelessWidget {
 class ShimmerCard extends StatelessWidget {
   const ShimmerCard({
     super.key,
-    required this.height,
+    this.height = 120,
     this.padding = const EdgeInsets.all(AppSpacing.xl),
   });
 
@@ -149,16 +149,20 @@ class EmptyStateCard extends StatelessWidget {
     super.key,
     required this.icon,
     required this.title,
-    required this.message,
+    this.message,
+    this.subtitle,
     this.action,
     this.accent = AppColors.gold,
   });
 
   final IconData icon;
   final String title;
-  final String message;
+  final String? message;
+  final String? subtitle;
   final Widget? action;
   final Color accent;
+
+  String get _displayMessage => message ?? subtitle ?? '';
 
   @override
   Widget build(BuildContext context) {
@@ -191,7 +195,7 @@ class EmptyStateCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            message,
+            _displayMessage,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.5),
           ),

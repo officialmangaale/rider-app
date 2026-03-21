@@ -1,27 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
-import '../../../domain/entities/app_models.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../domain/entities/app_models.dart';
 import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/feedback_widgets.dart';
-import '../../../shared/widgets/premium_controls.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
 
-class DeliveryHistoryScreen extends ConsumerStatefulWidget {
-  const DeliveryHistoryScreen({super.key});
+class HistoryScreen extends ConsumerStatefulWidget {
+  const HistoryScreen({super.key, this.detailId});
+  final String? detailId;
 
   @override
-  ConsumerState<DeliveryHistoryScreen> createState() =>
-      _DeliveryHistoryScreenState();
+  ConsumerState<HistoryScreen> createState() => _HistoryScreenState();
 }
 
-class _DeliveryHistoryScreenState extends ConsumerState<DeliveryHistoryScreen> {
+class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   final _searchController = TextEditingController();
-  String _filter = 'all';
+  String _query = '';
+  DeliveryOutcome? _filterOutcome;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() => _query = _searchController.text.trim().toLowerCase());
+    });
+  }
 
   @override
   void dispose() {
@@ -31,319 +39,196 @@ class _DeliveryHistoryScreenState extends ConsumerState<DeliveryHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final history = ref.watch(riderHubStateProvider)?.history ?? const [];
-    final query = _searchController.text.toLowerCase();
-    final filtered = history.where((record) {
-      final matchesFilter = _filter == 'all' || record.outcome.name == _filter;
-      final matchesQuery =
-          query.isEmpty ||
-          record.restaurantName.toLowerCase().contains(query) ||
-          record.customerName.toLowerCase().contains(query) ||
-          record.id.toLowerCase().contains(query);
-      return matchesFilter && matchesQuery;
-    }).toList();
+    final earningsAsync = ref.watch(earningsControllerProvider);
+
+    // If detail route, show detail view.
+    if (widget.detailId != null) {
+      final record = earningsAsync.valueOrNull?.history.where(
+        (r) => r.id == widget.detailId,
+      );
+      if (record != null && record.isNotEmpty) {
+        return _DetailView(record: record.first);
+      }
+      return PremiumScaffold(
+        title: 'Delivery details',
+        child: Center(
+          child: EmptyStateCard(
+            icon: Icons.search_off_rounded,
+            title: 'Record not found',
+            subtitle: 'This delivery record could not be located.',
+          ),
+        ),
+      );
+    }
 
     return PremiumScaffold(
       title: 'Delivery history',
-      subtitle:
-          'Search completed, cancelled, and failed trips with premium detail cards.',
-      child: RefreshIndicator(
-        onRefresh: () =>
-            ref.read(riderHubControllerProvider.notifier).refreshHub(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xl,
-            0,
-            AppSpacing.xl,
-            AppSpacing.xl,
+      subtitle: 'Past deliveries and earnings breakdown.',
+      onRefresh: () =>
+          ref.read(earningsControllerProvider.notifier).refresh(),
+      child: earningsAsync.when(
+        loading: () => const Padding(
+          padding: EdgeInsets.all(AppSpacing.xl),
+          child: Column(children: [ShimmerCard(), SizedBox(height: AppSpacing.md), ShimmerCard()]),
+        ),
+        error: (error, _) => Center(
+          child: EmptyStateCard(
+            icon: Icons.warning_rounded,
+            title: 'Could not load history',
+            subtitle: error is ApiException ? error.message : 'Something went wrong.',
           ),
-          children: [
-            PremiumTextField(
-              label: 'Search orders',
-              hint: 'Restaurant, customer, or order ID',
-              controller: _searchController,
-              prefixIcon: Icons.search_rounded,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: [
-                for (final filter in const [
-                  'all',
-                  'completed',
-                  'cancelled',
-                  'failed',
-                ])
-                  FilterChip(
-                    selected: _filter == filter,
-                    label: Text(filter.toUpperCase()),
-                    onSelected: (_) => setState(() => _filter = filter),
-                  ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            if (filtered.isEmpty)
-              const EmptyStateCard(
-                icon: Icons.inventory_2_outlined,
-                title: 'No matching deliveries',
-                message: 'Try another date range, status, or search term.',
-              )
-            else
-              for (final record in filtered)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                  child: GlassCard(
-                    onTap: () => context.push('/history/${record.id}'),
-                    accent: _colorForOutcome(record.outcome),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                record.restaurantName,
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                            ),
-                            StatusPill(
-                              label: record.outcome.name,
-                              color: _colorForOutcome(record.outcome),
-                            ),
-                          ],
+        ),
+        data: (state) {
+          var records = state.history;
+
+          // Apply search filter.
+          if (_query.isNotEmpty) {
+            records = records.where((r) {
+              return r.restaurantName.toLowerCase().contains(_query) ||
+                  r.customerName.toLowerCase().contains(_query) ||
+                  r.id.toLowerCase().contains(_query);
+            }).toList();
+          }
+
+          // Apply outcome filter.
+          if (_filterOutcome != null) {
+            records =
+                records.where((r) => r.outcome == _filterOutcome).toList();
+          }
+
+          return Column(
+            children: [
+              // ── Search + filter bar ──────────────────────────
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _searchController,
+                        decoration: const InputDecoration(
+                          hintText: 'Search deliveries...',
+                          prefixIcon: Icon(Icons.search_rounded),
+                          isDense: true,
                         ),
-                        const SizedBox(height: AppSpacing.xs),
-                        Text(
-                          'Order ${record.id} - ${record.customerName}',
-                          style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    PopupMenuButton<DeliveryOutcome?>(
+                      icon: const Icon(Icons.filter_list_rounded),
+                      onSelected: (v) => setState(() => _filterOutcome = v),
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(
+                          value: null,
+                          child: Text('All'),
                         ),
-                        const SizedBox(height: AppSpacing.md),
-                        Text(
-                          record.dropAddress,
-                          style: Theme.of(context).textTheme.bodyMedium,
+                        const PopupMenuItem(
+                          value: DeliveryOutcome.completed,
+                          child: Text('Completed'),
                         ),
-                        const SizedBox(height: AppSpacing.md),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                Formatters.dayTime(record.completedAt),
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ),
-                            Text(
-                              Formatters.currency(record.earnings),
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ],
+                        const PopupMenuItem(
+                          value: DeliveryOutcome.cancelled,
+                          child: Text('Cancelled'),
+                        ),
+                        const PopupMenuItem(
+                          value: DeliveryOutcome.failed,
+                          child: Text('Failed'),
                         ),
                       ],
                     ),
-                  ),
+                  ],
                 ),
-          ],
-        ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+
+              // ── Records list ────────────────────────────────
+              Expanded(
+                child: records.isEmpty
+                    ? const Center(
+                        child: EmptyStateCard(
+                          icon: Icons.history_rounded,
+                          title: 'No records found',
+                          subtitle: 'Try a different search or filter.',
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
+                        ),
+                        itemCount: records.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: AppSpacing.md),
+                        itemBuilder: (ctx, i) {
+                          final record = records[i];
+                          return _RecordCard(record: record);
+                        },
+                      ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class DeliveryDetailsScreen extends ConsumerWidget {
-  const DeliveryDetailsScreen({super.key, required this.recordId});
+// ── Record card ────────────────────────────────────────────────────────────
 
-  final String recordId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final record = ref
-        .watch(riderHubStateProvider)
-        ?.history
-        .where((element) => element.id == recordId)
-        .firstOrNull;
-
-    return PremiumScaffold(
-      title: 'Delivery details',
-      subtitle: 'Full rider breakdown for a completed trip.',
-      child: record == null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.xl),
-                child: EmptyStateCard(
-                  icon: Icons.receipt_long_outlined,
-                  title: 'Delivery not found',
-                  message: 'The selected order is missing from your rider history.',
-                  action: PrimaryButton(
-                    label: 'Back to history',
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ),
-              ),
-            )
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.xl,
-                0,
-                AppSpacing.xl,
-                AppSpacing.xl,
-              ),
-              children: [
-                GlassCard(
-                  accent: _colorForOutcome(record.outcome),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              record.restaurantName,
-                              style: Theme.of(context).textTheme.headlineSmall,
-                            ),
-                          ),
-                          StatusPill(
-                            label: record.outcome.name,
-                            color: _colorForOutcome(record.outcome),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      _DetailRow(label: 'Order ID', value: record.id),
-                      _DetailRow(
-                        label: 'Payment method',
-                        value: record.paymentMethod,
-                      ),
-                      _DetailRow(label: 'Customer', value: record.customerName),
-                      _DetailRow(
-                        label: 'Distance',
-                        value: Formatters.distance(record.distanceKm),
-                      ),
-                      _DetailRow(
-                        label: 'Delivery time',
-                        value: Formatters.dayTime(record.completedAt),
-                      ),
-                      _DetailRow(
-                        label: 'Duration',
-                        value: Formatters.minutes(record.durationMinutes),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xl),
-                GlassCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SectionHeader(
-                        title: 'Addresses and notes',
-                        subtitle: 'Pickup, drop, and rider note context.',
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      Text(
-                        record.pickupAddress,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      Text(
-                        record.dropAddress,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      Text(
-                        record.notes,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xl),
-                GlassCard(
-                  accent: AppColors.gold,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SectionHeader(
-                        title: 'Earnings breakdown',
-                        subtitle: 'Clear payout detail for the archived trip.',
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      _DetailRow(
-                        label: 'Base payout',
-                        value: Formatters.currency(record.earnings - 34),
-                      ),
-                      _DetailRow(
-                        label: 'Tips + boost',
-                        value: Formatters.currency(34),
-                      ),
-                      _DetailRow(
-                        label: 'Total credited',
-                        value: Formatters.currency(record.earnings),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xl),
-                GlassCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SectionHeader(
-                        title: 'Timeline',
-                        subtitle: 'Archived delivery milestones.',
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      for (final item in record.timeline)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.check_circle_rounded,
-                                color: AppColors.gold,
-                                size: 18,
-                              ),
-                              const SizedBox(width: AppSpacing.sm),
-                              Text(item),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-    );
-  }
-}
-
-Color _colorForOutcome(DeliveryOutcome outcome) => switch (outcome) {
-  DeliveryOutcome.completed => AppColors.emerald,
-  DeliveryOutcome.cancelled => AppColors.warning,
-  DeliveryOutcome.failed => AppColors.danger,
-};
-
-class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
+class _RecordCard extends StatelessWidget {
+  const _RecordCard({required this.record});
+  final DeliveryRecord record;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+    final outcomeColor = switch (record.outcome) {
+      DeliveryOutcome.completed => AppColors.emerald,
+      DeliveryOutcome.cancelled => AppColors.warning,
+      DeliveryOutcome.failed => AppColors.danger,
+    };
+
+    return GlassCard(
+      accent: outcomeColor,
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => _DetailView(record: record),
+        ),
+      ),
       child: Row(
         children: [
           Expanded(
-            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              style: Theme.of(context).textTheme.titleMedium,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  record.restaurantName,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  '${record.customerName} · ${Formatters.distance(record.distanceKm)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  Formatters.dayTime(record.completedAt),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
             ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                Formatters.currency(record.earnings),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 2),
+              StatusPill(
+                label: record.outcome.name,
+                color: outcomeColor,
+              ),
+            ],
           ),
         ],
       ),
@@ -351,9 +236,126 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-extension _FirstOrNull<T> on Iterable<T> {
-  T? get firstOrNull => isEmpty ? null : first;
+// ── Detail view ────────────────────────────────────────────────────────────
+
+class _DetailView extends StatelessWidget {
+  const _DetailView({required this.record});
+  final DeliveryRecord record;
+
+  @override
+  Widget build(BuildContext context) {
+    return PremiumScaffold(
+      title: 'Delivery #${record.id}',
+      subtitle: Formatters.dateLong(record.completedAt),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
+        ),
+        children: [
+          GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SectionHeader(
+                  title: 'Route',
+                  subtitle: 'Pickup and drop details.',
+                ),
+                const SizedBox(height: AppSpacing.md),
+                _DetailRow(label: 'Restaurant', value: record.restaurantName),
+                _DetailRow(label: 'Customer', value: record.customerName),
+                _DetailRow(label: 'Pickup', value: record.pickupAddress),
+                _DetailRow(label: 'Drop', value: record.dropAddress),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SectionHeader(
+                  title: 'Earnings',
+                  subtitle: 'Payout breakdown for this delivery.',
+                ),
+                const SizedBox(height: AppSpacing.md),
+                _DetailRow(
+                  label: 'Total earnings',
+                  value: Formatters.currency(record.earnings),
+                ),
+                _DetailRow(
+                  label: 'Distance',
+                  value: Formatters.distance(record.distanceKm),
+                ),
+                _DetailRow(
+                  label: 'Duration',
+                  value: Formatters.minutes(record.durationMinutes),
+                ),
+                _DetailRow(label: 'Payment', value: record.paymentMethod),
+                _DetailRow(label: 'Items', value: '${record.itemsCount}'),
+              ],
+            ),
+          ),
+          if (record.timeline.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.xl),
+            GlassCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionHeader(
+                    title: 'Timeline',
+                    subtitle: 'Delivery stages for this order.',
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  for (final step in record.timeline)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.check_circle_outline_rounded,
+                            size: 18,
+                            color: AppColors.emerald,
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Text(
+                            step,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+  final String label;
+  final String value;
 
-
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+          Flexible(
+            child: Text(
+              value,
+              style: Theme.of(context).textTheme.titleSmall,
+              textAlign: TextAlign.end,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

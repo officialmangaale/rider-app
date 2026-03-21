@@ -1,13 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
-import '../../../domain/entities/app_models.dart';
+import '../../../core/utils/delivery_helpers.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/feedback_widgets.dart';
 import '../../../shared/widgets/premium_cards.dart';
@@ -19,181 +20,92 @@ class OrdersScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hub = ref.watch(riderHubControllerProvider);
+    final ordersAsync = ref.watch(ordersControllerProvider);
 
     return PremiumScaffold(
-      title: 'New order requests',
-      subtitle:
-          'Review premium orders quickly before the dispatch timer expires.',
-      child: hub.when(
-        loading: () => const _OrdersSkeleton(),
-        error: (error, stackTrace) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.xl),
-            child: EmptyStateCard(
-              icon: Icons.error_outline_rounded,
-              title: 'Requests unavailable',
-              message: 'We could not load the incoming rider queue right now.',
-              action: PrimaryButton(
-                label: 'Retry',
-                onPressed: () =>
-                    ref.read(riderHubControllerProvider.notifier).refreshHub(),
-              ),
-            ),
+      title: 'Requests',
+      subtitle: 'Incoming delivery requests waiting for your response.',
+      onRefresh: () =>
+          ref.read(ordersControllerProvider.notifier).refresh(),
+      child: ordersAsync.when(
+        loading: () => const Padding(
+          padding: EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            children: [
+              ShimmerCard(),
+              SizedBox(height: AppSpacing.md),
+              ShimmerCard(),
+            ],
           ),
         ),
-        data: (state) => RefreshIndicator(
-          onRefresh: () =>
-              ref.read(riderHubControllerProvider.notifier).refreshHub(),
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
+        error: (error, _) => Center(
+          child: EmptyStateCard(
+            icon: Icons.warning_rounded,
+            title: 'Could not load requests',
+            subtitle: error is ApiException
+                ? error.message
+                : 'Something went wrong.',
+          ),
+        ),
+        data: (state) {
+          if (state.incoming.isEmpty) {
+            return const Center(
+              child: EmptyStateCard(
+                icon: Icons.delivery_dining_rounded,
+                title: 'No incoming requests',
+                subtitle:
+                    'New orders will appear here when dispatch assigns them.',
+              ),
+            );
+          }
+
+          return ListView.separated(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.xl,
               0,
               AppSpacing.xl,
-              120,
+              AppSpacing.xl,
             ),
-            children: [
-              if (state.queuedOrders.isNotEmpty) ...[
-                GlassCard(
-                  accent: AppColors.sky,
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.stacked_line_chart_rounded,
-                        color: AppColors.sky,
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: Text(
-                          '${state.queuedOrders.length} accepted orders are stacked after your current delivery.',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-              ],
-              if (state.incomingOrders.isEmpty)
-                EmptyStateCard(
-                  icon: Icons.bolt_outlined,
-                  title: 'No fresh requests',
-                  message:
-                      'The premium dispatch lane is calm right now. Pull to refresh or stay online.',
-                  action: PrimaryButton(
-                    label: 'Refresh queue',
-                    icon: Icons.refresh_rounded,
-                    onPressed: () => ref
-                        .read(riderHubControllerProvider.notifier)
-                        .refreshHub(),
-                  ),
-                )
-              else
-                for (final entry in state.incomingOrders.indexed)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                    child: _OrderRequestCard(order: entry.$2)
-                        .animate()
-                        .fadeIn(delay: (entry.$1 * 90).ms)
-                        .slideY(begin: 0.08),
-                  ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _OrderRequestCard extends ConsumerWidget {
-  const _OrderRequestCard({required this.order});
-
-  final DeliveryOrder order;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.read(riderHubControllerProvider.notifier);
-
-    return PremiumOrderCard(
-      order: order,
-      subtitle: 'Customer: ${order.customerName}',
-      trailing: _CountdownBadge(initialSeconds: order.countdownSeconds),
-      secondaryAction: SecondaryButton(
-        label: 'Reject',
-        icon: Icons.close_rounded,
-        expanded: true,
-        onPressed: () async {
-          try {
-            await controller.rejectOrder(
-              order.assignmentId ?? order.id,
-              reason: 'Too far from restaurant',
-            );
-            if (!context.mounted) {
-              return;
-            }
-            showLuxurySnackBar(
-              context,
-              'Request dismissed from your queue.',
-            );
-          } on ApiException catch (error) {
-            if (!context.mounted) {
-              return;
-            }
-            showLuxurySnackBar(context, error.message);
-          }
-        },
-      ),
-      primaryAction: PrimaryButton(
-        label: 'Accept',
-        icon: Icons.check_rounded,
-        expanded: true,
-        onPressed: () async {
-          try {
-            await controller.acceptOrder(order.assignmentId ?? order.id);
-            if (!context.mounted) {
-              return;
-            }
-            final activeId = ref.read(riderHubStateProvider)?.activeOrder?.id;
-            showLuxurySnackBar(
-              context,
-              'Order accepted${activeId == order.id ? ' and moved to active delivery.' : ' and stacked after your current drop.'}',
-            );
-          } on ApiException catch (error) {
-            if (!context.mounted) {
-              return;
-            }
-            showLuxurySnackBar(context, error.message);
-          }
+            itemCount: state.incoming.length,
+            separatorBuilder: (_, __) =>
+                const SizedBox(height: AppSpacing.md),
+            itemBuilder: (context, index) {
+              final order = state.incoming[index];
+              return _IncomingOrderCard(order: order);
+            },
+          );
         },
       ),
     );
   }
 }
 
-class _CountdownBadge extends StatefulWidget {
-  const _CountdownBadge({required this.initialSeconds});
+// ── Incoming order card with countdown ─────────────────────────────────────
 
-  final int initialSeconds;
+class _IncomingOrderCard extends ConsumerStatefulWidget {
+  const _IncomingOrderCard({required this.order});
+  final dynamic order;
 
   @override
-  State<_CountdownBadge> createState() => _CountdownBadgeState();
+  ConsumerState<_IncomingOrderCard> createState() =>
+      _IncomingOrderCardState();
 }
 
-class _CountdownBadgeState extends State<_CountdownBadge> {
-  late int _seconds;
+class _IncomingOrderCardState extends ConsumerState<_IncomingOrderCard> {
+  late int _remaining;
   Timer? _timer;
+  bool _acting = false;
 
   @override
   void initState() {
     super.initState();
-    _seconds = widget.initialSeconds;
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted || _seconds <= 0) {
-        timer.cancel();
-        return;
+    _remaining = widget.order.countdownSeconds;
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_remaining > 0) {
+        setState(() => _remaining--);
+      } else {
+        _timer?.cancel();
       }
-      setState(() => _seconds--);
     });
   }
 
@@ -205,37 +117,194 @@ class _CountdownBadgeState extends State<_CountdownBadge> {
 
   @override
   Widget build(BuildContext context) {
-    final color = _seconds < 15 ? AppColors.danger : AppColors.gold;
+    final order = widget.order;
+
+    return GlassCard(
+      accent: AppColors.gold,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header with countdown.
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      order.restaurantName as String,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      '${order.customerName} · ${Formatters.distance(order.distanceKm as double)}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: _remaining > 15
+                      ? AppColors.emerald.withValues(alpha: 0.12)
+                      : AppColors.ember.withValues(alpha: 0.12),
+                ),
+                child: Text(
+                  '${_remaining}s',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: _remaining > 15 ? AppColors.emerald : AppColors.ember,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+
+          // Order details.
+          Row(
+            children: [
+              _Chip(
+                label: Formatters.currency(order.payout as num),
+                color: AppColors.gold,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              _Chip(
+                label: '${order.itemsCount} items',
+                color: AppColors.sky,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              _Chip(
+                label: DeliveryHelpers.priorityLabel(order.priority),
+                color: AppColors.ember,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+
+          // Accept / Reject buttons.
+          Row(
+            children: [
+              Expanded(
+                child: SecondaryButton(
+                  label: 'Reject',
+                  icon: Icons.close_rounded,
+                  onPressed: _acting
+                      ? null
+                      : () => _showRejectSheet(context, order),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: PrimaryButton(
+                  label: _acting ? 'Accepting...' : 'Accept',
+                  icon: Icons.check_rounded,
+                  expanded: true,
+                  onPressed: _acting ? null : () => _accept(order),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _accept(dynamic order) async {
+    setState(() => _acting = true);
+    try {
+      await ref
+          .read(ordersControllerProvider.notifier)
+          .acceptOrder(order.assignmentId as String);
+      // Set as active delivery.
+      ref.read(deliveryControllerProvider.notifier).setActiveOrder(order);
+      if (mounted) context.go('/delivery');
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showLuxurySnackBar(context, e.message);
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
+  }
+
+  void _showRejectSheet(BuildContext context, dynamic order) {
+    String? selectedReason;
+    showPremiumBottomSheet(
+      context: context,
+      title: 'Reject order',
+      subtitle: 'Select a reason for declining this request.',
+      child: StatefulBuilder(
+        builder: (sheetCtx, setModalState) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final reason in DeliveryHelpers.rejectReasons)
+                RadioListTile<String>(
+                  value: reason,
+                  groupValue: selectedReason,
+                  title: Text(reason),
+                  onChanged: (v) =>
+                      setModalState(() => selectedReason = v),
+                ),
+              const SizedBox(height: AppSpacing.md),
+              PrimaryButton(
+                label: 'Confirm reject',
+                icon: Icons.close_rounded,
+                expanded: true,
+                onPressed: selectedReason == null
+                    ? null
+                    : () async {
+                        Navigator.of(sheetCtx).pop();
+                        try {
+                          await ref
+                              .read(ordersControllerProvider.notifier)
+                              .rejectOrder(
+                                order.assignmentId as String,
+                                reason: selectedReason,
+                              );
+                        } on ApiException catch (e) {
+                          if (!context.mounted) return;
+                          showLuxurySnackBar(context, e.message);
+                        }
+                      },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ── Chip helper ────────────────────────────────────────────────────────────
+
+class _Chip extends StatelessWidget {
+  const _Chip({required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.sm,
         vertical: AppSpacing.xs,
       ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(10),
+        color: color.withValues(alpha: 0.12),
       ),
       child: Text(
-        '${_seconds}s',
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(color: color),
+        label,
+        style: Theme.of(context)
+            .textTheme
+            .bodySmall
+            ?.copyWith(color: color, fontWeight: FontWeight.w700),
       ),
     );
   }
 }
-
-class _OrdersSkeleton extends StatelessWidget {
-  const _OrdersSkeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(AppSpacing.xl),
-      children: const [
-        ShimmerCard(height: 260),
-        SizedBox(height: AppSpacing.md),
-        ShimmerCard(height: 260),
-      ],
-    );
-  }
-}
-

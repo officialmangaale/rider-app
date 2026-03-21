@@ -125,12 +125,12 @@ GoRouter buildAppRouter(Ref ref) {
       GoRoute(
         path: '/history',
         pageBuilder: (context, state) =>
-            buildPage(const DeliveryHistoryScreen(), state),
+            buildPage(const HistoryScreen(), state),
       ),
       GoRoute(
         path: '/history/:id',
         pageBuilder: (context, state) => buildPage(
-          DeliveryDetailsScreen(recordId: state.pathParameters['id']!),
+          HistoryScreen(detailId: state.pathParameters['id']!),
           state,
         ),
       ),

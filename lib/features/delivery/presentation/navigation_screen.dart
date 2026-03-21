@@ -15,8 +15,8 @@ class NavigationScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hub = ref.watch(riderHubStateProvider);
-    final order = hub?.activeOrder;
+    final deliveryAsync = ref.watch(deliveryControllerProvider);
+    final order = deliveryAsync.valueOrNull?.activeOrder;
 
     return PremiumScaffold(
       title: 'Route preview',
@@ -112,7 +112,7 @@ class NavigationScreen extends ConsumerWidget {
                         onPressed: () async {
                           try {
                             await ref
-                                .read(riderHubControllerProvider.notifier)
+                                .read(deliveryControllerProvider.notifier)
                                 .advanceActiveOrder();
                             if (!context.mounted) {
                               return;

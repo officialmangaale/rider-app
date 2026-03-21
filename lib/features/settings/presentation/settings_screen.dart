@@ -5,21 +5,12 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
 
-class SettingsScreen extends ConsumerStatefulWidget {
+class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
-  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
-}
-
-class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  bool _orderAlerts = true;
-  bool _promotions = true;
-  bool _privacyMode = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final themeMode = ref.watch(themeModeControllerProvider);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(settingsControllerProvider);
 
     return PremiumScaffold(
       title: 'Settings',
@@ -27,10 +18,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           'Notification preferences, theme mode, privacy, terms, and app version.',
       child: ListView(
         padding: const EdgeInsets.fromLTRB(
-          AppSpacing.xl,
-          0,
-          AppSpacing.xl,
-          AppSpacing.xl,
+          AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
         ),
         children: [
           GlassCard(
@@ -39,19 +27,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 const SectionHeader(
                   title: 'Notification settings',
-                  subtitle: 'Choose what reaches you during the shift.',
+                  subtitle: 'Choose what reaches you during your shift.',
                 ),
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Order alerts'),
-                  value: _orderAlerts,
-                  onChanged: (value) => setState(() => _orderAlerts = value),
+                  value: settings.orderAlerts,
+                  onChanged: (v) => ref
+                      .read(settingsControllerProvider.notifier)
+                      .setOrderAlerts(v),
                 ),
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Incentives and promos'),
-                  value: _promotions,
-                  onChanged: (value) => setState(() => _promotions = value),
+                  value: settings.promotions,
+                  onChanged: (v) => ref
+                      .read(settingsControllerProvider.notifier)
+                      .setPromotions(v),
                 ),
               ],
             ),
@@ -68,26 +60,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Use dark theme'),
-                  value: themeMode == ThemeMode.dark,
-                  onChanged: (_) =>
-                      ref.read(themeModeControllerProvider.notifier).toggle(),
+                  value: settings.themeMode == ThemeMode.dark,
+                  onChanged: (_) => ref
+                      .read(settingsControllerProvider.notifier)
+                      .toggleTheme(),
                 ),
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Privacy mode'),
-                  value: _privacyMode,
-                  onChanged: (value) => setState(() => _privacyMode = value),
+                  value: settings.privacyMode,
+                  onChanged: (v) => ref
+                      .read(settingsControllerProvider.notifier)
+                      .setPrivacyMode(v),
                 ),
-                ListTile(
+                const ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Terms & conditions'),
-                  subtitle: const Text('Placeholder link for legal pages'),
-                  trailing: const Icon(Icons.chevron_right_rounded),
+                  title: Text('Terms & conditions'),
+                  subtitle: Text('Placeholder link for legal pages'),
+                  trailing: Icon(Icons.chevron_right_rounded),
                 ),
-                ListTile(
+                const ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Version info'),
-                  subtitle: const Text('Rydex Rider v1.0.0+1'),
+                  title: Text('Version info'),
+                  subtitle: Text('Rydex Rider v1.0.0+1'),
                 ),
               ],
             ),
@@ -97,4 +92,3 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 }
-

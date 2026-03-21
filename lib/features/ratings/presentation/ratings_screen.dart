@@ -12,7 +12,8 @@ class RatingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final reviews = ref.watch(riderHubStateProvider)?.reviews;
+    final earningsAsync = ref.watch(earningsControllerProvider);
+    final reviews = earningsAsync.valueOrNull?.reviews;
     if (reviews == null) {
       return const PremiumScaffold(child: SizedBox.shrink());
     }

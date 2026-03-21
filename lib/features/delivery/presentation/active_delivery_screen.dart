@@ -5,13 +5,13 @@ import 'package:go_router/go_router.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/utils/delivery_helpers.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../domain/entities/app_models.dart';
 import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/feedback_widgets.dart';
-import '../../../shared/widgets/premium_cards.dart';
-import '../../../shared/widgets/premium_controls.dart';
 import '../../../shared/widgets/navigation_widgets.dart';
+import '../../../shared/widgets/premium_controls.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
 
 class ActiveDeliveryScreen extends ConsumerWidget {
@@ -19,441 +19,311 @@ class ActiveDeliveryScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hub = ref.watch(riderHubControllerProvider);
+    final deliveryAsync = ref.watch(deliveryControllerProvider);
 
     return PremiumScaffold(
       title: 'Active delivery',
-      subtitle:
-          'Move smoothly from pickup confirmation to OTP verified handoff.',
-      child: hub.when(
-        loading: () => const _DeliverySkeleton(),
-        error: (error, stackTrace) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.xl),
-            child: EmptyStateCard(
-              icon: Icons.error_outline_rounded,
-              title: 'Delivery lane unavailable',
-              message: 'We could not load your current delivery right now.',
-              action: PrimaryButton(
-                label: 'Retry',
-                onPressed: () =>
-                    ref.read(riderHubControllerProvider.notifier).refreshHub(),
-              ),
-            ),
+      subtitle: 'Track and manage your current order.',
+      onRefresh: () =>
+          ref.read(deliveryControllerProvider.notifier).refresh(),
+      child: deliveryAsync.when(
+        loading: () => const Padding(
+          padding: EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            children: [ShimmerCard(), SizedBox(height: AppSpacing.md), ShimmerCard()],
+          ),
+        ),
+        error: (error, _) => Center(
+          child: EmptyStateCard(
+            icon: Icons.warning_rounded,
+            title: 'Could not load delivery',
+            subtitle: error is ApiException ? error.message : 'Something went wrong.',
           ),
         ),
         data: (state) {
-          final order = state.activeOrder;
-          if (order == null) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.xl),
-                child: EmptyStateCard(
-                  icon: Icons.route_outlined,
-                  title: 'No active delivery yet',
-                  message:
-                      'Accept a request to unlock route actions, pickup status, and OTP verification.',
-                  action: PrimaryButton(
-                    label: 'Open Requests',
-                    icon: Icons.bolt_rounded,
-                    onPressed: () => context.go('/requests'),
-                  ),
-                ),
+          if (!state.hasActiveOrder) {
+            return const Center(
+              child: EmptyStateCard(
+                icon: Icons.delivery_dining_rounded,
+                title: 'No active delivery',
+                subtitle: 'Accept an order from the Requests tab to start.',
               ),
             );
           }
 
+          final order = state.activeOrder!;
+
           return ListView(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.xl,
-              0,
-              AppSpacing.xl,
-              120,
+              AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
             ),
             children: [
-              Hero(
-                tag: 'order-${order.id}',
-                child: PremiumOrderCard(
-                  order: order,
-                  accent: AppColors.ember,
-                  subtitle: 'Order ${order.orderCode} for ${order.customerName}',
-                  showNotes: false,
-                  trailing: StatusPill(
-                    label: _stageLabel(order.status),
-                    color: AppColors.ember,
-                    icon: Icons.delivery_dining_rounded,
-                  ),
-                  footer: Wrap(
-                    spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.sm,
-                    children: [
-                      StatusPill(
-                        label: order.paymentMethod,
-                        color: AppColors.sky,
-                        icon: Icons.payments_outlined,
-                      ),
-                      if (order.pickupOtpRequired)
-                        const StatusPill(
-                          label: 'Pickup OTP',
-                          color: AppColors.gold,
-                          icon: Icons.storefront_outlined,
-                        ),
-                      if (order.deliveryOtpRequired)
-                        const StatusPill(
-                          label: 'Delivery OTP',
-                          color: AppColors.emerald,
-                          icon: Icons.verified_user_rounded,
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.xl),
+              // ── Order header ───────────────────────────────
               GlassCard(
+                accent: AppColors.gold,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SectionHeader(
-                      title: 'Action deck',
-                      subtitle:
-                          'Essential rider actions without leaving the delivery view.',
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    Wrap(
-                      spacing: AppSpacing.md,
-                      runSpacing: AppSpacing.md,
+                    Row(
                       children: [
-                        IconActionChip(
-                          label: 'Call customer',
-                          icon: Icons.call_outlined,
-                          onTap: () => showLuxurySnackBar(
-                            context,
-                            'Calling ${order.customerName} is ready for API integration.',
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                order.restaurantName,
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: AppSpacing.xs),
+                              Text(
+                                '${order.customerName} · ${order.orderCode}',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
                           ),
                         ),
-                        IconActionChip(
-                          label: 'Call restaurant',
-                          icon: Icons.storefront_outlined,
-                          onTap: () => showLuxurySnackBar(
-                            context,
-                            'Restaurant dial action is ready for API integration.',
-                          ),
-                        ),
-                        IconActionChip(
-                          label: 'Navigate',
-                          icon: Icons.navigation_outlined,
-                          onTap: () => context.push('/navigation'),
+                        StatusPill(
+                          label: DeliveryHelpers.statusLabel(order.status),
+                          color: AppColors.gold,
                         ),
                       ],
                     ),
                     const SizedBox(height: AppSpacing.lg),
-                    if (order.notes.trim().isNotEmpty) ...[
-                      Text(
-                        'Notes',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        order.notes,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                    ],
-                    Text(
-                      '${order.itemsCount} items - ${order.paymentMethod}',
-                      style: Theme.of(context).textTheme.bodySmall,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _Metric(
+                          label: 'Payout',
+                          value: Formatters.currency(order.payout),
+                        ),
+                        _Metric(
+                          label: 'Distance',
+                          value: Formatters.distance(order.distanceKm),
+                        ),
+                        _Metric(
+                          label: 'ETA',
+                          value: Formatters.minutes(order.etaMinutes),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: AppSpacing.xl),
+
+              // ── Status timeline ─────────────────────────────
               GlassCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SectionHeader(
-                      title: 'Status timeline',
-                      subtitle:
-                          'Advance the delivery confidently with clear progress checkpoints.',
+                      title: 'Delivery progress',
+                      subtitle: 'Each checkpoint in your order journey.',
                     ),
-                    const SizedBox(height: AppSpacing.lg),
-                    StatusTimeline(currentStage: order.status),
+                    const SizedBox(height: AppSpacing.md),
+                    StatusTimeline(
+                      currentStage: order.status,
+                    ),
                   ],
                 ),
               ),
-              if (state.queuedOrders.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.xl),
+              const SizedBox(height: AppSpacing.xl),
+
+              // ── Action buttons ──────────────────────────────
+              GlassCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SectionHeader(
+                      title: 'Actions',
+                      subtitle: 'Contact, navigate, or advance stage.',
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SecondaryButton(
+                            label: 'Call',
+                            icon: Icons.call_rounded,
+                            onPressed: () => showLuxurySnackBar(
+                              context,
+                              'Dialer integration ready — connect url_launcher next.',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: SecondaryButton(
+                            label: 'Navigate',
+                            icon: Icons.navigation_rounded,
+                            onPressed: () => context.push('/navigation'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    _AdvanceButton(order: order),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+
+              // ── Queued orders ───────────────────────────────
+              if (state.queuedOrders.isNotEmpty)
                 GlassCard(
-                  accent: AppColors.sky,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const SectionHeader(
-                        title: 'Queued after this drop',
-                        subtitle:
-                            'Accepted stacked orders ready to become active next.',
+                      SectionHeader(
+                        title: 'Queued (${state.queuedOrders.length})',
+                        subtitle: 'Orders waiting after current delivery.',
                       ),
-                      const SizedBox(height: AppSpacing.lg),
-                      for (final queued in state.queuedOrders)
+                      const SizedBox(height: AppSpacing.md),
+                      for (final q in state.queuedOrders)
                         Padding(
-                          padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                          child: _QueuedOrderTile(order: queued),
+                          padding:
+                              const EdgeInsets.only(bottom: AppSpacing.sm),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${q.restaurantName} → ${q.customerName}',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ),
+                              Text(
+                                Formatters.currency(q.payout),
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                            ],
+                          ),
                         ),
                     ],
                   ),
                 ),
-              ],
-              const SizedBox(height: AppSpacing.xl),
-              Row(
-                children: [
-                  Expanded(
-                    child: SecondaryButton(
-                      label: 'View map',
-                      icon: Icons.map_outlined,
-                      onPressed: () => context.push('/navigation'),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: PrimaryButton(
-                      label: _actionLabelForStage(order),
-                      icon: _actionIconForStage(order.status),
-                      expanded: true,
-                      onPressed: () => _handlePrimaryAction(
-                        context: context,
-                        ref: ref,
-                        order: order,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ],
           );
         },
       ),
     );
-  }
-
-  Future<void> _handlePrimaryAction({
-    required BuildContext context,
-    required WidgetRef ref,
-    required DeliveryOrder order,
-  }) async {
-    final controller = ref.read(riderHubControllerProvider.notifier);
-
-    try {
-      if (order.status == DeliveryStage.reachedRestaurant &&
-          order.pickupOtpRequired) {
-        await _showOtpSheet(
-          context: context,
-          title: 'Verify pickup OTP',
-          subtitle:
-              'Confirm the restaurant handoff before the order moves into pickup.',
-          onSubmit: (otp) => controller.advanceActiveOrder(otp: otp),
-          successMessage: 'Pickup OTP verified and order marked picked up.',
-        );
-        return;
-      }
-
-      if (order.status == DeliveryStage.reachedCustomer &&
-          order.deliveryOtpRequired) {
-        await _showOtpSheet(
-          context: context,
-          title: 'Verify delivery OTP',
-          subtitle:
-              'Confirm the final handoff before the delivery is completed.',
-          onSubmit: (otp) => controller.advanceActiveOrder(otp: otp),
-          successMessage: 'Delivery OTP verified and trip completed.',
-        );
-        return;
-      }
-
-      await controller.advanceActiveOrder();
-      if (!context.mounted) {
-        return;
-      }
-      showLuxurySnackBar(context, _successMessageForStage(order.status));
-    } on ApiException catch (error) {
-      if (!context.mounted) {
-        return;
-      }
-      showLuxurySnackBar(context, error.message);
-    }
-  }
-
-  Future<void> _showOtpSheet({
-    required BuildContext context,
-    required String title,
-    required String subtitle,
-    required Future<void> Function(String otp) onSubmit,
-    required String successMessage,
-  }) async {
-    final controller = TextEditingController();
-    var submitting = false;
-
-    await showPremiumBottomSheet(
-      context: context,
-      title: title,
-      subtitle: subtitle,
-      child: StatefulBuilder(
-        builder: (sheetContext, setModalState) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              PremiumTextField(
-                label: 'OTP code',
-                hint: 'Enter OTP',
-                controller: controller,
-                keyboardType: TextInputType.number,
-                prefixIcon: Icons.password_rounded,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              PrimaryButton(
-                label: submitting ? 'Verifying...' : 'Verify and continue',
-                icon: Icons.check_circle_rounded,
-                expanded: true,
-                onPressed: submitting
-                    ? null
-                    : () async {
-                        final otp = controller.text.trim();
-                        if (otp.length < 4) {
-                          showLuxurySnackBar(
-                            context,
-                            'Enter the OTP to continue.',
-                          );
-                          return;
-                        }
-                        setModalState(() => submitting = true);
-                        try {
-                          await onSubmit(otp);
-                          if (!context.mounted) {
-                            return;
-                          }
-                          Navigator.of(sheetContext).pop();
-                          showLuxurySnackBar(context, successMessage);
-                        } on ApiException catch (error) {
-                          if (!context.mounted) {
-                            return;
-                          }
-                          showLuxurySnackBar(context, error.message);
-                        } finally {
-                          if (sheetContext.mounted) {
-                            setModalState(() => submitting = false);
-                          }
-                        }
-                      },
-              ),
-            ],
-          );
-        },
-      ),
-    );
-
-    controller.dispose();
   }
 }
 
-String _actionLabelForStage(DeliveryOrder order) => switch (order.status) {
-  DeliveryStage.assigned => 'Accept order',
-  DeliveryStage.accepted => 'Mark reached restaurant',
-  DeliveryStage.reachedRestaurant => order.pickupOtpRequired
-      ? 'Verify pickup OTP'
-      : 'Confirm pickup',
-  DeliveryStage.pickedUp => 'Start route',
-  DeliveryStage.onTheWay => 'Mark arrived',
-  DeliveryStage.reachedCustomer => order.deliveryOtpRequired
-      ? 'Verify delivery OTP'
-      : 'Complete delivery',
-  DeliveryStage.delivered => 'Delivered',
-};
+// ── Advance button ─────────────────────────────────────────────────────────
 
-IconData _actionIconForStage(DeliveryStage stage) => switch (stage) {
-  DeliveryStage.assigned => Icons.check_circle_outline_rounded,
-  DeliveryStage.accepted => Icons.storefront_outlined,
-  DeliveryStage.reachedRestaurant => Icons.inventory_2_outlined,
-  DeliveryStage.pickedUp => Icons.route_outlined,
-  DeliveryStage.onTheWay => Icons.flag_outlined,
-  DeliveryStage.reachedCustomer => Icons.verified_user_rounded,
-  DeliveryStage.delivered => Icons.check_circle_rounded,
-};
-
-String _successMessageForStage(DeliveryStage stage) => switch (stage) {
-  DeliveryStage.assigned => 'Order accepted and moved into your lane.',
-  DeliveryStage.accepted => 'Restaurant arrival confirmed.',
-  DeliveryStage.reachedRestaurant => 'Pickup confirmed and route unlocked.',
-  DeliveryStage.pickedUp => 'Delivery is now on the way.',
-  DeliveryStage.onTheWay => 'Customer arrival checkpoint confirmed.',
-  DeliveryStage.reachedCustomer => 'Delivery completed successfully.',
-  DeliveryStage.delivered => 'Delivery already completed.',
-};
-
-String _stageLabel(DeliveryStage stage) => switch (stage) {
-  DeliveryStage.assigned => 'Assigned',
-  DeliveryStage.accepted => 'Accepted',
-  DeliveryStage.reachedRestaurant => 'At pickup',
-  DeliveryStage.pickedUp => 'Picked up',
-  DeliveryStage.onTheWay => 'On route',
-  DeliveryStage.reachedCustomer => 'At customer',
-  DeliveryStage.delivered => 'Delivered',
-};
-
-class _QueuedOrderTile extends StatelessWidget {
-  const _QueuedOrderTile({required this.order});
-
+class _AdvanceButton extends ConsumerStatefulWidget {
+  const _AdvanceButton({required this.order});
   final DeliveryOrder order;
 
   @override
+  ConsumerState<_AdvanceButton> createState() => _AdvanceButtonState();
+}
+
+class _AdvanceButtonState extends ConsumerState<_AdvanceButton> {
+  bool _loading = false;
+
+  bool get _requiresOtp {
+    final s = widget.order.status;
+    return (s == DeliveryStage.reachedRestaurant &&
+            widget.order.pickupOtpRequired) ||
+        (s == DeliveryStage.reachedCustomer &&
+            widget.order.deliveryOtpRequired);
+  }
+
+  String get _label {
+    if (_loading) return 'Verifying...';
+    if (widget.order.status == DeliveryStage.delivered) return 'Completed ✓';
+    final nextIndex = widget.order.status.index + 1;
+    if (nextIndex >= DeliveryStage.values.length) return 'Completed ✓';
+    return 'Advance → ${DeliveryHelpers.stageLabel(DeliveryStage.values[nextIndex])}';
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      ),
-      child: Row(
+    final isDone = widget.order.status == DeliveryStage.delivered;
+
+    return PrimaryButton(
+      label: _label,
+      icon: isDone ? Icons.check_circle_rounded : Icons.arrow_forward_rounded,
+      expanded: true,
+      onPressed: (isDone || _loading)
+          ? null
+          : () async {
+              if (_requiresOtp) {
+                _showOtpSheet();
+              } else {
+                await _advance(null);
+              }
+            },
+    );
+  }
+
+  Future<void> _advance(String? otp) async {
+    setState(() => _loading = true);
+    try {
+      await ref
+          .read(deliveryControllerProvider.notifier)
+          .advanceActiveOrder(otp: otp);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showLuxurySnackBar(context, e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _showOtpSheet() {
+    final controller = TextEditingController();
+    showPremiumBottomSheet(
+      context: context,
+      title: 'Verify OTP',
+      subtitle: 'Enter the OTP to proceed with this stage.',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.call_split_rounded, color: AppColors.sky),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  order.restaurantName,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  order.customerName,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
+          PremiumTextField(
+            label: 'OTP code',
+            hint: 'Enter 4–6 digit code',
+            controller: controller,
+            keyboardType: TextInputType.number,
+            prefixIcon: Icons.lock_outline_rounded,
           ),
-          Text(Formatters.currency(order.payout + order.tip)),
+          const SizedBox(height: AppSpacing.lg),
+          PrimaryButton(
+            label: 'Verify & advance',
+            icon: Icons.verified_rounded,
+            expanded: true,
+            onPressed: () {
+              final otp = controller.text.trim();
+              if (otp.isEmpty) {
+                showLuxurySnackBar(context, 'Enter the OTP first.');
+                return;
+              }
+              Navigator.of(context).pop();
+              _advance(otp);
+            },
+          ),
         ],
       ),
     );
   }
 }
 
-class _DeliverySkeleton extends StatelessWidget {
-  const _DeliverySkeleton();
+// ── Metric display ─────────────────────────────────────────────────────────
+
+class _Metric extends StatelessWidget {
+  const _Metric({required this.label, required this.value});
+  final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(AppSpacing.xl),
-      children: const [
-        ShimmerCard(height: 260),
-        SizedBox(height: AppSpacing.md),
-        ShimmerCard(height: 320),
+    return Column(
+      children: [
+        Text(value, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 2),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],
     );
   }
 }
-
-
-

@@ -20,4 +20,14 @@ class Formatters {
   static String dayTime(DateTime value) => _dayTime.format(value);
   static String distance(double km) => '${km.toStringAsFixed(1)} km';
   static String minutes(int value) => '$value min';
+
+  /// Time-aware greeting for the dashboard.
+  static String greeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 5) return 'Night owl ';
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    if (hour < 21) return 'Good evening';
+    return 'Good night';
+  }
 }

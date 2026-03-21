@@ -1,35 +1,43 @@
 import '../../core/network/api_client.dart';
 
+// =============================================================================
+// RiderBackendApi — Single entry point for all rider-service API calls.
+//
+// Every path below matches the Golang backend router (rider-service) exactly.
+// Auth endpoints (/auth/...) are handled by the shared user-service.
+// =============================================================================
+
 class RiderBackendApi {
   RiderBackendApi(ApiClient client)
     : auth = AuthApi(client),
-      riderProfile = RiderProfileApi(client),
-      availability = AvailabilityApi(client),
+      rider = RiderApi(client),
       orders = OrdersApi(client),
-      otpVerification = OtpVerificationApi(client),
-      liveLocation = LiveLocationApi(client),
+      delivery = DeliveryApi(client),
+      location = LocationApi(client),
       earnings = EarningsApi(client),
-      ratings = RatingsApi(client),
-      notifications = NotificationsApi(client),
-      support = SupportApi(client),
-      admin = AdminApi(client);
+      notifications = NotificationsApi(client);
 
   final AuthApi auth;
-  final RiderProfileApi riderProfile;
-  final AvailabilityApi availability;
+  final RiderApi rider;
   final OrdersApi orders;
-  final OtpVerificationApi otpVerification;
-  final LiveLocationApi liveLocation;
+  final DeliveryApi delivery;
+  final LocationApi location;
   final EarningsApi earnings;
-  final RatingsApi ratings;
   final NotificationsApi notifications;
-  final SupportApi support;
-  final AdminApi admin;
+
+  /// Legacy accessor aliases used by older providers/screens.
+  RiderApi get profile => rider;
+  RiderApi get riderProfile => rider;
+  OrdersApi get availability => orders; // availability helpers live on RiderApi but kept for compat
 }
+
+// =============================================================================
+// Auth — handled by shared user-service, NOT rider-service.
+// Paths do NOT include /api/v1 since they live on user-service.
+// =============================================================================
 
 class AuthApi {
   const AuthApi(this._client);
-
   final ApiClient _client;
 
   Future<ApiEnvelope<Map<String, dynamic>>> login({
@@ -78,6 +86,16 @@ class AuthApi {
     );
   }
 
+  Future<ApiEnvelope<Map<String, dynamic>>> signup({
+    required Map<String, dynamic> payload,
+  }) {
+    return _client.postObject(
+      '/auth/rider/register',
+      requiresAuth: false,
+      body: payload,
+    );
+  }
+
   Future<ApiEnvelope<Map<String, dynamic>>> refreshToken({
     required String refreshToken,
     required String deviceId,
@@ -93,12 +111,15 @@ class AuthApi {
   }
 
   Future<ApiEnvelope<Map<String, dynamic>>> logout({
-    required String refreshToken,
+    String? refreshToken,
   }) {
-    return _client.postObject(
-      '/auth/logout',
-      body: {'refresh_token': refreshToken},
-    );
+    if (refreshToken != null) {
+      return _client.postObject(
+        '/auth/logout',
+        body: {'refresh_token': refreshToken},
+      );
+    }
+    return _client.postObject('/auth/logout-all');
   }
 
   Future<ApiEnvelope<Map<String, dynamic>>> logoutAll() {
@@ -134,633 +155,385 @@ class AuthApi {
   Future<ApiEnvelope<Map<String, dynamic>>> me() {
     return _client.getObject('/auth/me');
   }
+
+  // --- convenience aliases used by providers ---
+
+  Future<ApiEnvelope<Map<String, dynamic>>> sendLoginOtp({
+    required String login,
+  }) => sendRiderOtp(login: login);
+
+  Future<ApiEnvelope<Map<String, dynamic>>> verifyLoginOtp({
+    required String login,
+    required String otp,
+    String deviceId = '',
+    String deviceName = 'Flutter Rider',
+  }) => verifyRiderOtp(login: login, otp: otp, deviceId: deviceId, deviceName: deviceName);
+
+  Future<ApiEnvelope<Map<String, dynamic>>> loginWithPassword({
+    required String login,
+    required String password,
+    String deviceId = '',
+    String deviceName = 'Flutter Rider',
+  }) => this.login(login: login, password: password, deviceId: deviceId, deviceName: deviceName);
+
+  Future<ApiEnvelope<Map<String, dynamic>>> requestPasswordReset({
+    required String login,
+  }) => forgotPassword(login: login);
 }
 
-class RiderProfileApi {
-  const RiderProfileApi(this._client);
+// =============================================================================
+// Rider — profile, vehicle, bank, onboarding, dashboard, availability.
+// Backend group: /api/v1/rider
+// =============================================================================
 
+class RiderApi {
+  const RiderApi(this._client);
   final ApiClient _client;
 
+  // --- Profile ---
   Future<ApiEnvelope<Map<String, dynamic>>> me() {
-    return _client.getObject('/riders/me');
+    return _client.getObject('/api/v1/rider/profile');
   }
+
+  Future<ApiEnvelope<Map<String, dynamic>>> getProfile() => me();
 
   Future<ApiEnvelope<Map<String, dynamic>>> updateMe({
     required Map<String, dynamic> payload,
   }) {
-    return _client.putObject('/riders/me', body: payload);
+    return _client.putObject('/api/v1/rider/profile', body: payload);
   }
 
-  Future<ApiEnvelope<Map<String, dynamic>>> updatePhoto({
-    required String photoUrl,
-  }) {
-    return _client.putObject(
-      '/riders/me/photo',
-      body: {'photo_url': photoUrl},
-    );
-  }
+  Future<ApiEnvelope<Map<String, dynamic>>> updateProfile({
+    required Map<String, dynamic> payload,
+  }) => updateMe(payload: payload);
 
+  // --- Vehicle ---
   Future<ApiEnvelope<Map<String, dynamic>>> updateVehicle({
     required Map<String, dynamic> payload,
   }) {
-    return _client.putObject('/riders/me/vehicle', body: payload);
+    return _client.putObject('/api/v1/rider/vehicle', body: payload);
   }
 
-  Future<ApiEnvelope<List<dynamic>>> updateDocuments({
-    required List<Map<String, dynamic>> documents,
-  }) {
-    return _client.putList(
-      '/riders/me/documents',
-      body: {'documents': documents},
-    );
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> documents({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList(
-      '/riders/me/documents',
-      queryParameters: queryParameters,
-    );
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> updateBankAccount({
+  // --- Bank Details ---
+  Future<ApiEnvelope<Map<String, dynamic>>> updateBankDetails({
     required Map<String, dynamic> payload,
   }) {
-    return _client.putObject('/riders/me/bank-account', body: payload);
+    return _client.putObject('/api/v1/rider/bank-details', body: payload);
   }
 
-  Future<ApiEnvelope<Map<String, dynamic>>> status() {
-    return _client.getObject('/riders/me/status');
+  /// Legacy alias.
+  Future<ApiEnvelope<Map<String, dynamic>>> updateBankAccount({
+    required Map<String, dynamic> payload,
+  }) => updateBankDetails(payload: payload);
+
+  // --- KYC ---
+  Future<ApiEnvelope<Map<String, dynamic>>> updateKYC({
+    required Map<String, dynamic> payload,
+  }) {
+    return _client.putObject('/api/v1/rider/kyc', body: payload);
   }
-}
 
-class AvailabilityApi {
-  const AvailabilityApi(this._client);
+  // --- Onboarding ---
+  Future<ApiEnvelope<Map<String, dynamic>>> onboardingStatus() {
+    return _client.getObject('/api/v1/rider/onboarding-status');
+  }
 
-  final ApiClient _client;
+  // --- Dashboard ---
+  Future<ApiEnvelope<Map<String, dynamic>>> dashboard() {
+    return _client.getObject('/api/v1/rider/dashboard');
+  }
 
+  // --- Availability / Go Online / Go Offline ---
   Future<ApiEnvelope<Map<String, dynamic>>> goOnline() {
-    return _client.postObject('/riders/me/go-online');
+    return _client.postObject('/api/v1/rider/go-online');
   }
 
-  Future<ApiEnvelope<Map<String, dynamic>>> goOffline({String? reason}) {
-    return _client.postObject(
-      '/riders/me/go-offline',
-      body: reason == null ? null : {'reason': reason},
-    );
+  Future<ApiEnvelope<Map<String, dynamic>>> goOffline() {
+    return _client.postObject('/api/v1/rider/go-offline');
   }
 
-  Future<ApiEnvelope<Map<String, dynamic>>> startBreak({String? reason}) {
-    return _client.postObject(
-      '/riders/me/break/start',
-      body: reason == null ? null : {'reason': reason},
-    );
+  Future<ApiEnvelope<Map<String, dynamic>>> getAvailability() {
+    return _client.getObject('/api/v1/rider/availability');
   }
 
-  Future<ApiEnvelope<Map<String, dynamic>>> endBreak() {
-    return _client.postObject('/riders/me/break/end');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> startShift({
-    Map<String, dynamic>? payload,
-  }) {
-    return _client.postObject('/riders/me/shift/start', body: payload);
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> endShift({
-    Map<String, dynamic>? payload,
-  }) {
-    return _client.postObject('/riders/me/shift/end', body: payload);
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> todayShift({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList(
-      '/riders/me/shift/today',
-      queryParameters: queryParameters,
-    );
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> shiftHistory({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList(
-      '/riders/me/shift/history',
-      queryParameters: queryParameters,
-    );
-  }
+  /// Legacy alias: status() → getAvailability()
+  Future<ApiEnvelope<Map<String, dynamic>>> status() => getAvailability();
 }
+
+// =============================================================================
+// Orders — available, active, incoming, assignments, history, detail.
+// Backend group: /api/v1/orders
+// =============================================================================
 
 class OrdersApi {
   const OrdersApi(this._client);
-
   final ApiClient _client;
 
-  Future<ApiEnvelope<List<dynamic>>> orderRequests({
+  Future<ApiEnvelope<Map<String, dynamic>>> availableOrders({
     Map<String, dynamic>? queryParameters,
   }) {
-    return _client.getList(
-      '/riders/me/order-requests',
+    return _client.getObject(
+      '/api/v1/orders/available',
       queryParameters: queryParameters,
-    );
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> orderRequest(String id) {
-    return _client.getObject('/riders/me/order-requests/$id');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> acceptOrderRequest(String id) {
-    return _client.postObject('/riders/me/order-requests/$id/accept');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> rejectOrderRequest(
-    String id, {
-    String? reason,
-  }) {
-    return _client.postObject(
-      '/riders/me/order-requests/$id/reject',
-      body: reason == null ? null : {'reason': reason},
     );
   }
 
   Future<ApiEnvelope<Map<String, dynamic>>> activeOrder() {
-    return _client.getObject('/riders/me/active-order');
+    return _client.getObject('/api/v1/orders/active');
   }
 
-  Future<ApiEnvelope<List<dynamic>>> assignedOrders({
+  Future<ApiEnvelope<Map<String, dynamic>>> incomingAssignment() {
+    return _client.getObject('/api/v1/orders/incoming');
+  }
+
+  Future<ApiEnvelope<Map<String, dynamic>>> acceptAssignment(String assignmentId) {
+    return _client.postObject('/api/v1/orders/assignments/$assignmentId/accept');
+  }
+
+  Future<ApiEnvelope<Map<String, dynamic>>> rejectAssignment(
+    String assignmentId, {
+    String? reason,
+  }) {
+    return _client.postObject(
+      '/api/v1/orders/assignments/$assignmentId/reject',
+      body: reason == null ? null : {'reason': reason},
+    );
+  }
+
+  Future<ApiEnvelope<Map<String, dynamic>>> orderDetail(String orderId) {
+    return _client.getObject('/api/v1/orders/$orderId');
+  }
+
+  Future<ApiEnvelope<Map<String, dynamic>>> orderHistory({
     Map<String, dynamic>? queryParameters,
   }) {
-    return _client.getList(
-      '/riders/me/orders/assigned',
+    return _client.getObject(
+      '/api/v1/orders/history',
       queryParameters: queryParameters,
     );
   }
 
-  Future<ApiEnvelope<List<dynamic>>> orderHistory({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList(
-      '/riders/me/orders/history',
-      queryParameters: queryParameters,
-    );
-  }
+  // --- Legacy aliases used by api_rider_repository / providers ---
 
-  Future<ApiEnvelope<Map<String, dynamic>>> order(String orderId) {
-    return _client.getObject('/riders/me/orders/$orderId');
-  }
+  Future<ApiEnvelope<Map<String, dynamic>>> getActiveOrder() => activeOrder();
+
+  Future<ApiEnvelope<Map<String, dynamic>>> getIncomingRequests() =>
+      incomingAssignment();
+
+  /// Alias: orderRequests() → incomingAssignment()
+  Future<ApiEnvelope<Map<String, dynamic>>> orderRequests() =>
+      incomingAssignment();
+
+  Future<ApiEnvelope<Map<String, dynamic>>> acceptOrderRequest(String id) =>
+      acceptAssignment(id);
+
+  Future<ApiEnvelope<Map<String, dynamic>>> rejectOrderRequest(
+    String id, {
+    String? reason,
+  }) => rejectAssignment(id, reason: reason);
+
+  Future<ApiEnvelope<Map<String, dynamic>>> order(String orderId) =>
+      orderDetail(orderId);
+}
+
+// =============================================================================
+// Delivery — lifecycle stage transitions.
+// Backend group: /api/v1/delivery
+// =============================================================================
+
+class DeliveryApi {
+  const DeliveryApi(this._client);
+  final ApiClient _client;
 
   Future<ApiEnvelope<Map<String, dynamic>>> arrivedAtRestaurant(String orderId) {
-    return _client.postObject(
-      '/riders/me/orders/$orderId/arrived-at-restaurant',
-    );
+    return _client.postObject('/api/v1/delivery/$orderId/arrived-at-restaurant');
   }
 
   Future<ApiEnvelope<Map<String, dynamic>>> pickedUp(String orderId) {
-    return _client.postObject('/riders/me/orders/$orderId/picked-up');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> startDelivery(String orderId) {
-    return _client.postObject('/riders/me/orders/$orderId/start-delivery');
+    return _client.postObject('/api/v1/delivery/$orderId/picked-up');
   }
 
   Future<ApiEnvelope<Map<String, dynamic>>> arrivedAtCustomer(String orderId) {
+    return _client.postObject('/api/v1/delivery/$orderId/arrived-at-customer');
+  }
+
+  Future<ApiEnvelope<Map<String, dynamic>>> delivered(String orderId) {
+    return _client.postObject('/api/v1/delivery/$orderId/delivered');
+  }
+
+  Future<ApiEnvelope<Map<String, dynamic>>> cancel(
+    String orderId, {
+    required String reason,
+  }) {
     return _client.postObject(
-      '/riders/me/orders/$orderId/arrived-at-customer',
+      '/api/v1/delivery/$orderId/cancel',
+      body: {'reason': reason},
     );
   }
 
-  Future<ApiEnvelope<Map<String, dynamic>>> deliver(String orderId) {
-    return _client.postObject('/riders/me/orders/$orderId/deliver');
+  Future<ApiEnvelope<Map<String, dynamic>>> fail(
+    String orderId, {
+    required String reason,
+  }) {
+    return _client.postObject(
+      '/api/v1/delivery/$orderId/failed',
+      body: {'reason': reason},
+    );
   }
+
+  // --- Legacy aliases used by api_rider_repository ---
+
+  Future<ApiEnvelope<Map<String, dynamic>>> deliver(String orderId) =>
+      delivered(orderId);
 
   Future<ApiEnvelope<Map<String, dynamic>>> markFailed(
     String orderId, {
     required String reason,
-  }) {
-    return _client.postObject(
-      '/riders/me/orders/$orderId/failed',
-      body: {'reason': reason},
-    );
-  }
+  }) => fail(orderId, reason: reason);
 
   Future<ApiEnvelope<Map<String, dynamic>>> requestCancellation(
     String orderId, {
     required String reason,
-  }) {
-    return _client.postObject(
-      '/riders/me/orders/$orderId/cancel-request',
-      body: {'reason': reason},
-    );
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> timeline(String orderId) {
-    return _client.getList('/riders/me/orders/$orderId/timeline');
-  }
+  }) => cancel(orderId, reason: reason);
 }
 
-class OtpVerificationApi {
-  const OtpVerificationApi(this._client);
+// =============================================================================
+// Location — GPS updates.
+// Backend group: /api/v1/location
+// =============================================================================
 
-  final ApiClient _client;
-
-  Future<ApiEnvelope<Map<String, dynamic>>> verifyPickupOtp({
-    required String orderId,
-    required String otp,
-  }) {
-    return _client.postObject(
-      '/riders/me/orders/$orderId/verify-pickup-otp',
-      body: {'otp': otp},
-    );
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> verifyDeliveryOtp({
-    required String orderId,
-    required String otp,
-  }) {
-    return _client.postObject(
-      '/riders/me/orders/$orderId/verify-delivery-otp',
-      body: {'otp': otp},
-    );
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> resendDeliveryOtp(String orderId) {
-    return _client.postObject('/orders/$orderId/resend-delivery-otp');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> resendPickupOtp(String orderId) {
-    return _client.postObject('/orders/$orderId/resend-pickup-otp');
-  }
-}
-
-class LiveLocationApi {
-  const LiveLocationApi(this._client);
-
+class LocationApi {
+  const LocationApi(this._client);
   final ApiClient _client;
 
   Future<ApiEnvelope<Map<String, dynamic>>> updateLocation({
-    required String orderId,
     required double latitude,
     required double longitude,
-    double? accuracyMeters,
-    double? speedKph,
-    double? headingDegrees,
-    num? batteryLevel,
-    String? source,
-    String? recordedAt,
+    double? heading,
+    double? speed,
   }) {
     return _client.postObject(
-      '/riders/me/location/update',
+      '/api/v1/location/update',
       body: {
-        'order_id': orderId,
         'latitude': latitude,
         'longitude': longitude,
-        if (accuracyMeters != null) 'accuracy_meters': accuracyMeters,
-        if (speedKph != null) 'speed_kph': speedKph,
-        if (headingDegrees != null) 'heading_degrees': headingDegrees,
-        if (batteryLevel != null) 'battery_level': batteryLevel,
-        if (source != null) 'source': source,
-        if (recordedAt != null) 'recorded_at': recordedAt,
+        if (heading != null) 'heading': heading,
+        if (speed != null) 'speed': speed,
       },
     );
   }
 
-  Future<ApiEnvelope<List<dynamic>>> bulkUpdateLocation({
-    required List<Map<String, dynamic>> points,
-  }) {
-    return _client.postList(
-      '/riders/me/location/bulk-update',
-      body: {'points': points},
-    );
+  Future<ApiEnvelope<Map<String, dynamic>>> currentLocation() {
+    return _client.getObject('/api/v1/location/current');
   }
 
-  Future<ApiEnvelope<Map<String, dynamic>>> latestLocation() {
-    return _client.getObject('/riders/me/location/latest');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> tracking(String orderId) {
-    return _client.getObject('/orders/$orderId/tracking');
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> routeHistory(
-    String orderId, {
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList(
-      '/riders/me/routes/$orderId',
-      queryParameters: queryParameters,
-    );
-  }
+  /// Legacy alias.
+  Future<ApiEnvelope<Map<String, dynamic>>> latestLocation() =>
+      currentLocation();
 }
+
+// =============================================================================
+// Earnings — summary and history only.
+// Backend group: /api/v1/earnings
+// =============================================================================
 
 class EarningsApi {
   const EarningsApi(this._client);
-
-  final ApiClient _client;
-
-  Future<ApiEnvelope<Map<String, dynamic>>> today() {
-    return _client.getObject('/riders/me/earnings/today');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> weekly() {
-    return _client.getObject('/riders/me/earnings/weekly');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> monthly() {
-    return _client.getObject('/riders/me/earnings/monthly');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> summary() {
-    return _client.getObject('/riders/me/earnings/summary');
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> history({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList(
-      '/riders/me/earnings/history',
-      queryParameters: queryParameters,
-    );
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> incentives({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList(
-      '/riders/me/incentives',
-      queryParameters: queryParameters,
-    );
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> bonusHistory({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList(
-      '/riders/me/bonus-history',
-      queryParameters: queryParameters,
-    );
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> wallet() {
-    return _client.getObject('/riders/me/wallet');
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> walletTransactions({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList(
-      '/riders/me/wallet/transactions',
-      queryParameters: queryParameters,
-    );
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> payouts({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList('/riders/me/payouts', queryParameters: queryParameters);
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> payout(String id) {
-    return _client.getObject('/riders/me/payouts/$id');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> requestPayout({
-    required num amount,
-  }) {
-    return _client.postObject(
-      '/riders/me/payouts/request',
-      body: {'amount': amount},
-    );
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> bankAccount() {
-    return _client.getObject('/riders/me/bank-account');
-  }
-}
-
-class RatingsApi {
-  const RatingsApi(this._client);
-
   final ApiClient _client;
 
   Future<ApiEnvelope<Map<String, dynamic>>> summary() {
-    return _client.getObject('/riders/me/ratings/summary');
+    return _client.getObject('/api/v1/earnings/summary');
   }
 
-  Future<ApiEnvelope<List<dynamic>>> reviews({
+  Future<ApiEnvelope<Map<String, dynamic>>> history({
     Map<String, dynamic>? queryParameters,
   }) {
-    return _client.getList('/riders/me/reviews', queryParameters: queryParameters);
+    return _client.getObject(
+      '/api/v1/earnings/history',
+      queryParameters: queryParameters,
+    );
   }
 
-  Future<ApiEnvelope<Map<String, dynamic>>> performanceScore() {
-    return _client.getObject('/riders/me/performance-score');
+  // --- Legacy aliases ---
+
+  Future<ApiEnvelope<Map<String, dynamic>>> getEarningsReport() => summary();
+  Future<ApiEnvelope<Map<String, dynamic>>> getPayoutSummary() => summary();
+  Future<ApiEnvelope<Map<String, dynamic>>> today() => summary();
+  Future<ApiEnvelope<Map<String, dynamic>>> weekly() => summary();
+  Future<ApiEnvelope<Map<String, dynamic>>> monthly() => summary();
+  Future<ApiEnvelope<Map<String, dynamic>>> wallet() => summary();
+
+  Future<ApiEnvelope<Map<String, dynamic>>> getDeliveryHistory({
+    Map<String, dynamic>? queryParameters,
+  }) => history(queryParameters: queryParameters);
+
+  /// Stubs for methods that have no backend — return empty data.
+  Future<ApiEnvelope<Map<String, dynamic>>> bankAccount() async {
+    return const ApiEnvelope(
+      success: true,
+      message: 'not implemented',
+      data: <String, dynamic>{},
+    );
   }
 }
+
+// =============================================================================
+// Notifications — list, mark-read, device token, unread count.
+// Backend group: /api/v1/notifications
+// =============================================================================
 
 class NotificationsApi {
   const NotificationsApi(this._client);
-
   final ApiClient _client;
 
-  Future<ApiEnvelope<List<dynamic>>> notifications({
+  Future<ApiEnvelope<Map<String, dynamic>>> list({
     Map<String, dynamic>? queryParameters,
   }) {
-    return _client.getList(
-      '/riders/me/notifications',
+    return _client.getObject(
+      '/api/v1/notifications',
       queryParameters: queryParameters,
     );
   }
 
+  /// Legacy alias
+  Future<ApiEnvelope<Map<String, dynamic>>> notifications({
+    Map<String, dynamic>? queryParameters,
+  }) => list(queryParameters: queryParameters);
+
+  /// Legacy alias
+  Future<ApiEnvelope<Map<String, dynamic>>> getNotifications({
+    Map<String, dynamic>? queryParameters,
+  }) => list(queryParameters: queryParameters);
+
   Future<ApiEnvelope<Map<String, dynamic>>> markRead(String id) {
-    return _client.putObject('/riders/me/notifications/$id/read');
+    return _client.putObject('/api/v1/notifications/$id/read');
   }
 
   Future<ApiEnvelope<Map<String, dynamic>>> markAllRead() {
-    return _client.putObject('/riders/me/notifications/read-all');
+    return _client.putObject('/api/v1/notifications/read-all');
   }
 
+  Future<ApiEnvelope<Map<String, dynamic>>> registerDeviceToken({
+    required String platform,
+    required String pushToken,
+  }) {
+    return _client.postObject(
+      '/api/v1/notifications/device-token',
+      body: {
+        'platform': platform,
+        'push_token': pushToken,
+      },
+    );
+  }
+
+  /// Legacy alias.
   Future<ApiEnvelope<Map<String, dynamic>>> saveDeviceToken({
     required String deviceId,
     required String platform,
     required String token,
-  }) {
-    return _client.postObject(
-      '/riders/me/device-token',
-      body: {
-        'device_id': deviceId,
-        'platform': platform,
-        'token': token,
-      },
-    );
-  }
+  }) => registerDeviceToken(platform: platform, pushToken: token);
 
-  Future<ApiEnvelope<Map<String, dynamic>>> deleteDeviceToken({
-    required String deviceId,
-  }) {
-    return _client.deleteObject(
-      '/riders/me/device-token',
-      queryParameters: {'device_id': deviceId},
-    );
+  Future<ApiEnvelope<Map<String, dynamic>>> unreadCount() {
+    return _client.getObject('/api/v1/notifications/unread-count');
   }
 }
-
-class SupportApi {
-  const SupportApi(this._client);
-
-  final ApiClient _client;
-
-  Future<ApiEnvelope<Map<String, dynamic>>> createTicket({
-    required Map<String, dynamic> payload,
-  }) {
-    return _client.postObject('/riders/me/support-tickets', body: payload);
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> tickets({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList(
-      '/riders/me/support-tickets',
-      queryParameters: queryParameters,
-    );
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> ticket(String id) {
-    return _client.getObject('/riders/me/support-tickets/$id');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> reply({
-    required String ticketId,
-    required String message,
-  }) {
-    return _client.postObject(
-      '/riders/me/support-tickets/$ticketId/reply',
-      body: {'message': message},
-    );
-  }
-}
-
-class AdminApi {
-  const AdminApi(this._client);
-
-  final ApiClient _client;
-
-  Future<ApiEnvelope<List<dynamic>>> riders({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList('/admin/riders', queryParameters: queryParameters);
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> rider(String id) {
-    return _client.getObject('/admin/riders/$id');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> createRider({
-    required Map<String, dynamic> payload,
-  }) {
-    return _client.postObject('/admin/riders', body: payload);
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> updateRider({
-    required String id,
-    required Map<String, dynamic> payload,
-  }) {
-    return _client.putObject('/admin/riders/$id', body: payload);
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> updateRiderStatus({
-    required String id,
-    required String status,
-  }) {
-    return _client.putObject(
-      '/admin/riders/$id/status',
-      body: {'status': status},
-    );
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> unassignedOrders({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList(
-      '/admin/orders/unassigned',
-      queryParameters: queryParameters,
-    );
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> assignRider({
-    required String orderId,
-    required String riderId,
-  }) {
-    return _client.postObject(
-      '/admin/orders/$orderId/assign-rider',
-      body: {'rider_id': riderId},
-    );
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> reassignRider({
-    required String orderId,
-    required String riderId,
-  }) {
-    return _client.postObject(
-      '/admin/orders/$orderId/reassign-rider',
-      body: {'rider_id': riderId},
-    );
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> liveOrders({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList('/admin/orders/live', queryParameters: queryParameters);
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> liveRiderStatus({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList(
-      '/admin/riders/live-status',
-      queryParameters: queryParameters,
-    );
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> riderAnalytics({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getObject(
-      '/admin/analytics/riders',
-      queryParameters: queryParameters,
-    );
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> config() {
-    return _client.getObject('/admin/config');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> updateConfig({
-    required Map<String, dynamic> payload,
-  }) {
-    return _client.putObject('/admin/config', body: payload);
-  }
-
-  Future<ApiEnvelope<List<dynamic>>> payouts({
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _client.getList('/admin/payouts', queryParameters: queryParameters);
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> approvePayout(String id) {
-    return _client.postObject('/admin/payouts/$id/approve');
-  }
-
-  Future<ApiEnvelope<Map<String, dynamic>>> rejectPayout({
-    required String id,
-    required String reason,
-  }) {
-    return _client.postObject(
-      '/admin/payouts/$id/reject',
-      queryParameters: {'reason': reason},
-    );
-  }
-}
-
-

@@ -15,7 +15,8 @@ class WalletScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final summary = ref.watch(riderHubStateProvider)?.payoutSummary;
+    final earningsAsync = ref.watch(earningsControllerProvider);
+    final summary = earningsAsync.valueOrNull?.payoutSummary;
     if (summary == null) {
       return const PremiumScaffold(child: SizedBox.shrink());
     }
@@ -214,12 +215,8 @@ class WalletScreen extends ConsumerWidget {
                         setModalState(() => submitting = true);
                         try {
                           await ref
-                              .read(riderBackendApiProvider)
-                              .earnings
+                              .read(earningsControllerProvider.notifier)
                               .requestPayout(amount: amount);
-                          await ref
-                              .read(riderHubControllerProvider.notifier)
-                              .refreshHub();
                           if (!context.mounted) {
                             return;
                           }

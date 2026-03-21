@@ -14,7 +14,8 @@ class SupportScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final faqs = ref.watch(riderHubStateProvider)?.supportFaqs ?? const [];
+    final supportAsync = ref.watch(supportControllerProvider);
+    final faqs = supportAsync.valueOrNull ?? const [];
 
     return PremiumScaffold(
       title: 'Help center',
@@ -201,15 +202,12 @@ class SupportScreen extends ConsumerWidget {
                         }
                         setModalState(() => submitting = true);
                         try {
-                          await ref.read(riderBackendApiProvider).support.createTicket(
-                            payload: {
-                              'subject': subjectController.text.trim(),
-                              'category': 'DELIVERY_ISSUE',
-                              'priority': 'HIGH',
-                              if (orderIdController.text.trim().isNotEmpty)
-                                'order_id': orderIdController.text.trim(),
-                              'description': descriptionController.text.trim(),
-                            },
+                          await ref.read(supportControllerProvider.notifier).createTicket(
+                            subject: subjectController.text.trim(),
+                            description: descriptionController.text.trim(),
+                            orderId: orderIdController.text.trim().isNotEmpty
+                                ? orderIdController.text.trim()
+                                : null,
                           );
                           if (!context.mounted) {
                             return;

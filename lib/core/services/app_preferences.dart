@@ -9,6 +9,14 @@ class AppPreferences implements ApiTokenStore {
 
   final SharedPreferences _preferences;
 
+  /// Expose for settings provider to read/write keys directly.
+  SharedPreferences get prefs => _preferences;
+
+  // ── Theme ──────────────────────────────────────────────────────────────
+
+  bool get isDarkMode =>
+      _preferences.getString(AppConstants.preferencesThemeKey) == 'dark';
+
   ThemeMode getThemeMode() {
     final value = _preferences.getString(AppConstants.preferencesThemeKey);
     return switch (value) {
@@ -26,12 +34,27 @@ class AppPreferences implements ApiTokenStore {
     return _preferences.setString(AppConstants.preferencesThemeKey, value);
   }
 
+  Future<void> setDarkMode(bool dark) {
+    return _preferences.setString(
+      AppConstants.preferencesThemeKey,
+      dark ? 'dark' : 'light',
+    );
+  }
+
+  // ── Onboarding ─────────────────────────────────────────────────────────
+
   bool get hasSeenOnboarding =>
       _preferences.getBool(AppConstants.preferencesOnboardingKey) ?? false;
+
+  Future<void> setOnboardingSeen() {
+    return _preferences.setBool(AppConstants.preferencesOnboardingKey, true);
+  }
 
   Future<void> setHasSeenOnboarding(bool value) {
     return _preferences.setBool(AppConstants.preferencesOnboardingKey, value);
   }
+
+  // ── Auth tokens ────────────────────────────────────────────────────────
 
   @override
   String? get accessToken =>
@@ -51,14 +74,18 @@ class AppPreferences implements ApiTokenStore {
 
   @override
   Future<String> getDeviceId() async {
-    final existing = _preferences.getString(AppConstants.preferencesDeviceIdKey);
+    final existing =
+        _preferences.getString(AppConstants.preferencesDeviceIdKey);
     if (existing != null && existing.isNotEmpty) {
       return existing;
     }
 
     final generated =
         'flutter-rider-${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}';
-    await _preferences.setString(AppConstants.preferencesDeviceIdKey, generated);
+    await _preferences.setString(
+      AppConstants.preferencesDeviceIdKey,
+      generated,
+    );
     return generated;
   }
 

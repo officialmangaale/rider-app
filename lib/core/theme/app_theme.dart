@@ -7,7 +7,147 @@ class AppTheme {
   const AppTheme._();
 
   static ThemeData darkTheme() {
-    return lightTheme();
+    const colorScheme = ColorScheme(
+      brightness: Brightness.dark,
+      primary: AppColors.riderPrimary,
+      onPrimary: Colors.white,
+      secondary: Color(0xFFB0BAC9),
+      onSecondary: Color(0xFF1A1D23),
+      error: AppColors.danger,
+      onError: Colors.white,
+      surface: Color(0xFF1A1D23),
+      onSurface: Color(0xFFF0F2F5),
+      tertiary: AppColors.sky,
+      onTertiary: Color(0xFF1A1D23),
+      primaryContainer: Color(0xFF1E2A3A),
+      onPrimaryContainer: Color(0xFFE0E6EF),
+      secondaryContainer: Color(0xFF222730),
+      onSecondaryContainer: Color(0xFFE0E6EF),
+      errorContainer: Color(0xFF3D1F1F),
+      onErrorContainer: Color(0xFFF5CCCC),
+      surfaceContainerHighest: Color(0xFF222730),
+      onSurfaceVariant: Color(0xFF8C95A6),
+      outline: Color(0xFF3A4050),
+      outlineVariant: Color(0xFF2C3240),
+      inverseSurface: Color(0xFFF0F2F5),
+      onInverseSurface: Color(0xFF1A1D23),
+      inversePrimary: AppColors.riderPrimary,
+      shadow: Color(0x40000000),
+      scrim: Colors.black87,
+      surfaceTint: Colors.transparent,
+    );
+
+    final baseTextTheme = _buildTextTheme(colorScheme);
+    final base = ThemeData(
+      colorScheme: colorScheme,
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: const Color(0xFF12151A),
+      canvasColor: const Color(0xFF12151A),
+      textTheme: baseTextTheme,
+      cardColor: colorScheme.surface,
+      splashFactory: InkRipple.splashFactory,
+      dividerColor: colorScheme.outlineVariant,
+      iconTheme: const IconThemeData(color: Color(0xFFD0D5DD)),
+    );
+
+    return base.copyWith(
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: false,
+        foregroundColor: colorScheme.onSurface,
+        surfaceTintColor: Colors.transparent,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF222730),
+        contentTextStyle: baseTextTheme.bodyMedium?.copyWith(
+          color: colorScheme.onSurface,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+      ),
+      chipTheme: base.chipTheme.copyWith(
+        backgroundColor: const Color(0xFF222730),
+        side: BorderSide(color: colorScheme.outlineVariant),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFF222730),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
+        hintStyle: baseTextTheme.bodyMedium?.copyWith(
+          color: colorScheme.onSurfaceVariant,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: colorScheme.outlineVariant),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: colorScheme.outlineVariant),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: AppColors.riderPrimary),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: AppColors.danger),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: AppColors.danger),
+        ),
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: Color(0xFF1A1D23),
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+      ),
+      dividerTheme: DividerThemeData(
+        color: colorScheme.outlineVariant,
+        thickness: 1,
+        space: 1,
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: colorScheme.primary,
+          textStyle: baseTextTheme.labelLarge,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          foregroundColor: colorScheme.onSurface,
+          backgroundColor: const Color(0xFF222730),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          side: BorderSide(color: colorScheme.outlineVariant),
+        ),
+      ),
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
+        },
+      ),
+    );
   }
 
   static ThemeData lightTheme() {

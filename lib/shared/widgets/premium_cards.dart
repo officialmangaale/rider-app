@@ -446,3 +446,108 @@ class _OrderMetric extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// SparklineMetricCard — headline metric + mini sparkline.
+// ---------------------------------------------------------------------------
+
+class SparklineMetricCard extends StatelessWidget {
+  const SparklineMetricCard({
+    super.key,
+    required this.title,
+    required this.value,
+    this.trend = const [],
+    this.accent = AppColors.emerald,
+  });
+
+  final String title;
+  final String value;
+  final List<double> trend;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      accent: accent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: AppSpacing.xs),
+          Text(value, style: Theme.of(context).textTheme.headlineMedium),
+          if (trend.length >= 2) ...[
+            const SizedBox(height: AppSpacing.lg),
+            SizedBox(
+              height: 48,
+              child: CustomPaint(
+                size: const Size(double.infinity, 48),
+                painter: _SparklinePainter(points: trend, color: accent),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SparklinePainter extends CustomPainter {
+  _SparklinePainter({required this.points, required this.color});
+
+  final List<double> points;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.length < 2) return;
+
+    double maxVal = points[0], minVal = points[0];
+    for (final p in points) {
+      if (p > maxVal) maxVal = p;
+      if (p < minVal) minVal = p;
+    }
+    final range = maxVal - minVal == 0 ? 1.0 : maxVal - minVal;
+    final stepX = size.width / (points.length - 1);
+
+    final path = Path();
+    for (int i = 0; i < points.length; i++) {
+      final x = i * stepX;
+      final y = size.height - ((points[i] - minVal) / range) * size.height;
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..strokeCap = StrokeCap.round,
+    );
+
+    final fillPath = Path.from(path)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(
+      fillPath,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            color.withValues(alpha: 0.18),
+            color.withValues(alpha: 0.0),
+          ],
+        ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklinePainter oldDelegate) =>
+      oldDelegate.points != points || oldDelegate.color != color;
+}

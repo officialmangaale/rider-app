@@ -15,16 +15,7 @@ class NotificationsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(riderHubStateProvider);
-    final notifications = state?.notifications ?? const <AppNotificationItem>[];
-    final today = notifications
-        .where((item) => DateTime.now().difference(item.createdAt).inHours < 24)
-        .toList();
-    final earlier = notifications
-        .where(
-          (item) => DateTime.now().difference(item.createdAt).inHours >= 24,
-        )
-        .toList();
+    final notificationsAsync = ref.watch(notificationsControllerProvider);
 
     return PremiumScaffold(
       title: 'Notifications',
@@ -35,48 +26,77 @@ class NotificationsScreen extends ConsumerWidget {
           onPressed: () async {
             try {
               await ref
-                  .read(riderHubControllerProvider.notifier)
-                  .markAllNotificationsRead();
-              if (!context.mounted) {
-                return;
-              }
+                  .read(notificationsControllerProvider.notifier)
+                  .markAllRead();
+              if (!context.mounted) return;
               showLuxurySnackBar(context, 'All notifications marked as read.');
             } on ApiException catch (error) {
-              if (!context.mounted) {
-                return;
-              }
+              if (!context.mounted) return;
               showLuxurySnackBar(context, error.message);
             }
           },
           child: const Text('Mark all read'),
         ),
       ],
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.xl,
-          0,
-          AppSpacing.xl,
-          AppSpacing.xl,
+      onRefresh: () =>
+          ref.read(notificationsControllerProvider.notifier).refresh(),
+      child: notificationsAsync.when(
+        loading: () => const Padding(
+          padding: EdgeInsets.all(AppSpacing.xl),
+          child: Column(children: [ShimmerCard(), SizedBox(height: AppSpacing.md), ShimmerCard()]),
         ),
-        children: [
-          if (today.isNotEmpty) ...[
-            const SectionHeader(
-              title: 'Today',
-              subtitle: 'Fresh rider updates and dispatch movement.',
+        error: (error, _) => Center(
+          child: EmptyStateCard(
+            icon: Icons.warning_rounded,
+            title: 'Could not load notifications',
+            subtitle: error is ApiException ? error.message : 'Something went wrong.',
+          ),
+        ),
+        data: (notifications) {
+          if (notifications.isEmpty) {
+            return const Center(
+              child: EmptyStateCard(
+                icon: Icons.notifications_none_rounded,
+                title: 'No notifications',
+                subtitle: 'You\'re all caught up.',
+              ),
+            );
+          }
+
+          final today = notifications
+              .where((item) =>
+                  DateTime.now().difference(item.createdAt).inHours < 24)
+              .toList();
+          final earlier = notifications
+              .where((item) =>
+                  DateTime.now().difference(item.createdAt).inHours >= 24)
+              .toList();
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
             ),
-            const SizedBox(height: AppSpacing.md),
-            ...today.map((item) => _NotificationCard(item: item)),
-          ],
-          if (earlier.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.xl),
-            const SectionHeader(
-              title: 'Earlier',
-              subtitle: 'Recent app and payout history notifications.',
-            ),
-            const SizedBox(height: AppSpacing.md),
-            ...earlier.map((item) => _NotificationCard(item: item)),
-          ],
-        ],
+            children: [
+              if (today.isNotEmpty) ...[
+                const SectionHeader(
+                  title: 'Today',
+                  subtitle: 'Fresh rider updates and dispatch movement.',
+                ),
+                const SizedBox(height: AppSpacing.md),
+                ...today.map((item) => _NotificationCard(item: item)),
+              ],
+              if (earlier.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.xl),
+                const SectionHeader(
+                  title: 'Earlier',
+                  subtitle: 'Recent app and payout history notifications.',
+                ),
+                const SizedBox(height: AppSpacing.md),
+                ...earlier.map((item) => _NotificationCard(item: item)),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -84,7 +104,6 @@ class NotificationsScreen extends ConsumerWidget {
 
 class _NotificationCard extends ConsumerWidget {
   const _NotificationCard({required this.item});
-
   final AppNotificationItem item;
 
   @override
@@ -97,22 +116,26 @@ class _NotificationCard extends ConsumerWidget {
       NotificationType.support => AppColors.warning,
     };
 
+    final icon = switch (item.type) {
+      NotificationType.order => Icons.delivery_dining_rounded,
+      NotificationType.payout => Icons.payments_rounded,
+      NotificationType.incentive => Icons.card_giftcard_rounded,
+      NotificationType.update => Icons.system_update_rounded,
+      NotificationType.support => Icons.support_agent_rounded,
+    };
+
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: GlassCard(
         accent: color,
         onTap: () async {
-          if (!item.isUnread) {
-            return;
-          }
+          if (!item.isUnread) return;
           try {
             await ref
-                .read(riderHubControllerProvider.notifier)
-                .markNotificationRead(item.id);
+                .read(notificationsControllerProvider.notifier)
+                .markRead(item.id);
           } on ApiException catch (error) {
-            if (!context.mounted) {
-              return;
-            }
+            if (!context.mounted) return;
             showLuxurySnackBar(context, error.message);
           }
         },
@@ -126,7 +149,7 @@ class _NotificationCard extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(16),
                 color: color.withValues(alpha: 0.14),
               ),
-              child: Icon(Icons.notifications_active_rounded, color: color),
+              child: Icon(icon, color: color),
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../presentation/providers/app_providers.dart';
-import '../../../shared/widgets/navigation_widgets.dart';
+import '../../../shared/widgets/feedback_widgets.dart';
 import '../../../shared/widgets/premium_cards.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
 
@@ -15,116 +15,149 @@ class EarningsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hub = ref.watch(riderHubStateProvider);
-    final earnings = hub?.earnings;
-
-    if (earnings == null) {
-      return const PremiumScaffold(child: SizedBox.shrink());
-    }
+    final earningsAsync = ref.watch(earningsControllerProvider);
 
     return PremiumScaffold(
       title: 'Earnings',
-      subtitle: 'Daily, weekly, and monthly income signals for premium riders.',
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.xl,
-          0,
-          AppSpacing.xl,
-          120,
-        ),
-        children: [
-          Wrap(
-            spacing: AppSpacing.md,
-            runSpacing: AppSpacing.md,
+      subtitle: 'Revenue breakdown, trend, and payout overview.',
+      onRefresh: () =>
+          ref.read(earningsControllerProvider.notifier).refresh(),
+      child: earningsAsync.when(
+        loading: () => const Padding(
+          padding: EdgeInsets.all(AppSpacing.xl),
+          child: Column(
             children: [
-              MetricCard(
-                label: 'Daily',
-                value: Formatters.currency(earnings.daily),
-                icon: Icons.today_rounded,
-                accent: AppColors.gold,
-              ),
-              MetricCard(
-                label: 'Weekly',
-                value: Formatters.currency(earnings.weekly),
-                icon: Icons.view_week_rounded,
-                accent: AppColors.ember,
-              ),
-              MetricCard(
-                label: 'Monthly',
-                value: Formatters.currency(earnings.monthly),
-                icon: Icons.calendar_month_rounded,
-                accent: AppColors.emerald,
-              ),
+              ShimmerCard(),
+              SizedBox(height: AppSpacing.md),
+              ShimmerCard(),
             ],
           ),
-          const SizedBox(height: AppSpacing.xl),
-          InsightChart(points: earnings.trend),
-          const SizedBox(height: AppSpacing.xl),
-          PremiumAnalyticsCard(
-            title: 'Incentives and tips',
-            subtitle: 'Extra upside that keeps the shift premium.',
-            icon: Icons.workspace_premium_rounded,
-            accent: AppColors.gold,
-            child: Column(
-              children: [
-                _Row(
-                  label: 'Delivery incentives',
-                  value: Formatters.currency(earnings.incentives),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                _Row(label: 'Tips', value: Formatters.currency(earnings.tips)),
-                const SizedBox(height: AppSpacing.md),
-                _Row(
-                  label: 'Bonus',
-                  value: Formatters.currency(earnings.bonus),
-                ),
-              ],
-            ),
+        ),
+        error: (error, _) => Center(
+          child: EmptyStateCard(
+            icon: Icons.warning_rounded,
+            title: 'Could not load earnings',
+            subtitle: error is ApiException
+                ? error.message
+                : 'Something went wrong.',
           ),
-          const SizedBox(height: AppSpacing.xl),
-          PremiumAnalyticsCard(
-            title: 'Payout history',
-            subtitle: 'Recent settlement trend heading into the wallet.',
-            icon: Icons.account_balance_wallet_rounded,
-            accent: AppColors.sky,
-            trailing: TextButton(
-              onPressed: () => context.push('/wallet'),
-              child: const Text('Wallet'),
+        ),
+        data: (state) {
+          final earnings = state.earnings;
+          if (earnings == null) {
+            return const Center(
+              child: EmptyStateCard(
+                icon: Icons.attach_money_rounded,
+                title: 'No earnings data',
+                subtitle: 'Complete deliveries to see your earnings.',
+              ),
+            );
+          }
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
             ),
-            child: Column(
-              children: [
-                for (int index = 0; index < earnings.payoutHistory.length; index++) ...[
-                  _Row(
-                    label: earnings.payoutHistory[index].label,
-                    value: Formatters.currency(earnings.payoutHistory[index].amount),
+            children: [
+              Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.md,
+                children: [
+                  MetricCard(
+                    label: 'Today',
+                    value: Formatters.currency(earnings.daily),
+                    icon: Icons.today_rounded,
+                    accent: AppColors.gold,
                   ),
-                  if (index != earnings.payoutHistory.length - 1)
-                    const SizedBox(height: AppSpacing.md),
+                  MetricCard(
+                    label: 'This week',
+                    value: Formatters.currency(earnings.weekly),
+                    icon: Icons.calendar_view_week_rounded,
+                    accent: AppColors.sky,
+                  ),
+                  MetricCard(
+                    label: 'This month',
+                    value: Formatters.currency(earnings.monthly),
+                    icon: Icons.calendar_month_rounded,
+                    accent: AppColors.emerald,
+                  ),
                 ],
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              SparklineMetricCard(
+                title: 'Earnings trend',
+                value: Formatters.currency(earnings.weekly),
+                trend: earnings.trend.map((p) => p.amount).toList(),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              GlassCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SectionHeader(
+                      title: 'Breakdown',
+                      subtitle: 'Where your earnings come from.',
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    _EarningsRow(
+                      label: 'Incentives',
+                      value: Formatters.currency(earnings.incentives),
+                    ),
+                    _EarningsRow(
+                      label: 'Tips',
+                      value: Formatters.currency(earnings.tips),
+                    ),
+                    _EarningsRow(
+                      label: 'Bonus',
+                      value: Formatters.currency(earnings.bonus),
+                    ),
+                  ],
+                ),
+              ),
+              if (earnings.payoutHistory.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.xl),
+                GlassCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SectionHeader(
+                        title: 'Payout history',
+                        subtitle: 'Recent settlement activity.',
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      for (final entry in earnings.payoutHistory)
+                        _EarningsRow(
+                          label: entry.label,
+                          value: Formatters.currency(entry.amount),
+                        ),
+                    ],
+                  ),
+                ),
               ],
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class _Row extends StatelessWidget {
-  const _Row({required this.label, required this.value});
-
+class _EarningsRow extends StatelessWidget {
+  const _EarningsRow({required this.label, required this.value});
   final String label;
   final String value;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(label, style: Theme.of(context).textTheme.bodySmall),
-        ),
-        Text(value, style: Theme.of(context).textTheme.titleMedium),
-      ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          Text(value, style: Theme.of(context).textTheme.titleSmall),
+        ],
+      ),
     );
   }
 }

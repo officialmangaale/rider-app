@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import '../constants/app_constants.dart';
@@ -77,11 +78,15 @@ class ApiClient {
     required this.baseUrl,
     required this.httpClient,
     required this.tokenStore,
+    this.timeout = const Duration(seconds: 30),
+    this.maxRetries = 1,
   });
 
   final String baseUrl;
   final PlatformHttpClient httpClient;
   final ApiTokenStore tokenStore;
+  final Duration timeout;
+  final int maxRetries;
 
   Future<bool>? _refreshFuture;
   int _requestCounter = 0;
@@ -96,7 +101,7 @@ class ApiClient {
       path,
       queryParameters: queryParameters,
       requiresAuth: requiresAuth,
-      parser: (data) => _asMap(data),
+      parser: (data) => asMap(data),
     );
   }
 
@@ -126,7 +131,7 @@ class ApiClient {
       body: body,
       queryParameters: queryParameters,
       requiresAuth: requiresAuth,
-      parser: (data) => _asMap(data),
+      parser: (data) => asMap(data),
     );
   }
 
@@ -158,7 +163,7 @@ class ApiClient {
       body: body,
       queryParameters: queryParameters,
       requiresAuth: requiresAuth,
-      parser: (data) => _asMap(data),
+      parser: (data) => asMap(data),
     );
   }
 
@@ -178,6 +183,22 @@ class ApiClient {
     );
   }
 
+  Future<ApiEnvelope<Map<String, dynamic>>> patchObject(
+    String path, {
+    Object? body,
+    Map<String, dynamic>? queryParameters,
+    bool requiresAuth = true,
+  }) {
+    return request<Map<String, dynamic>>(
+      'PATCH',
+      path,
+      body: body,
+      queryParameters: queryParameters,
+      requiresAuth: requiresAuth,
+      parser: (data) => asMap(data),
+    );
+  }
+
   Future<ApiEnvelope<Map<String, dynamic>>> deleteObject(
     String path, {
     Object? body,
@@ -190,7 +211,7 @@ class ApiClient {
       body: body,
       queryParameters: queryParameters,
       requiresAuth: requiresAuth,
-      parser: (data) => _asMap(data),
+      parser: (data) => asMap(data),
     );
   }
 
@@ -202,7 +223,7 @@ class ApiClient {
     bool requiresAuth = true,
     required ApiParser<T> parser,
   }) {
-    return _request<T>(
+    return _requestWithRetry<T>(
       method,
       path,
       body: body,
@@ -210,10 +231,11 @@ class ApiClient {
       requiresAuth: requiresAuth,
       parser: parser,
       hasRetried: false,
+      retryCount: 0,
     );
   }
 
-  Future<ApiEnvelope<T>> _request<T>(
+  Future<ApiEnvelope<T>> _requestWithRetry<T>(
     String method,
     String path, {
     Object? body,
@@ -221,6 +243,7 @@ class ApiClient {
     required bool requiresAuth,
     required ApiParser<T> parser,
     required bool hasRetried,
+    required int retryCount,
   }) async {
     final uri = _buildUri(path, queryParameters);
     final headers = <String, String>{
@@ -238,19 +261,43 @@ class ApiClient {
       }
     }
 
-    final raw = await httpClient.send(
-      method,
-      uri,
-      headers: headers,
-      body: body == null ? null : jsonEncode(body),
-    );
+    PlatformHttpResponse raw;
+
+    try {
+      raw = await httpClient
+          .send(
+            method,
+            uri,
+            headers: headers,
+            body: body == null ? null : jsonEncode(body),
+          )
+          .timeout(timeout);
+    } on TimeoutException {
+      if (retryCount < maxRetries) {
+        return _requestWithRetry<T>(
+          method,
+          path,
+          body: body,
+          queryParameters: queryParameters,
+          requiresAuth: requiresAuth,
+          parser: parser,
+          hasRetried: hasRetried,
+          retryCount: retryCount + 1,
+        );
+      }
+      throw const ApiException(
+        message: 'Request timed out. Please check your connection.',
+        statusCode: 0,
+      );
+    }
 
     final decoded = _decodeBody(raw.body);
 
+    // Handle 401 with token refresh (single attempt).
     if (requiresAuth && raw.statusCode == 401 && !hasRetried) {
       final refreshed = await _refreshTokens();
       if (refreshed) {
-        return _request<T>(
+        return _requestWithRetry<T>(
           method,
           path,
           body: body,
@@ -258,8 +305,26 @@ class ApiClient {
           requiresAuth: requiresAuth,
           parser: parser,
           hasRetried: true,
+          retryCount: retryCount,
         );
       }
+    }
+
+    // Retry on 5xx server errors (up to maxRetries).
+    if (raw.statusCode >= 500 && retryCount < maxRetries) {
+      await Future<void>.delayed(
+        Duration(milliseconds: 500 * (retryCount + 1)),
+      );
+      return _requestWithRetry<T>(
+        method,
+        path,
+        body: body,
+        queryParameters: queryParameters,
+        requiresAuth: requiresAuth,
+        parser: parser,
+        hasRetried: hasRetried,
+        retryCount: retryCount + 1,
+      );
     }
 
     final payload = decoded is Map<String, dynamic>
@@ -273,7 +338,7 @@ class ApiClient {
         message: payload['message'] as String? ?? 'Request failed.',
         statusCode: raw.statusCode,
         errorCode: payload['error_code'] as String?,
-        errors: _asMap(payload['errors']),
+        errors: asMap(payload['errors']),
         rawData: payload,
       );
     }
@@ -334,29 +399,34 @@ class ApiClient {
     }
 
     try {
-      final raw = await httpClient.send(
-        'POST',
-        _buildUri('/auth/refresh-token', null),
-        headers: const <String, String>{
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'refresh_token': refreshToken,
-          'device_id': await tokenStore.getDeviceId(),
-        }),
-      );
+      final raw = await httpClient
+          .send(
+            'POST',
+            _buildUri('/auth/refresh-token', null),
+            headers: const <String, String>{
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'refresh_token': refreshToken,
+              'device_id': await tokenStore.getDeviceId(),
+            }),
+          )
+          .timeout(timeout);
 
       final decoded = _decodeBody(raw.body);
       final payload = decoded is Map<String, dynamic>
           ? decoded
-          : <String, dynamic>{'success': false, 'message': 'Token refresh failed'};
+          : <String, dynamic>{
+              'success': false,
+              'message': 'Token refresh failed',
+            };
       if ((payload['success'] as bool? ?? false) != true) {
         await tokenStore.clearTokens();
         return false;
       }
 
-      final data = _asMap(payload['data']);
+      final data = asMap(payload['data']);
       final nextAccessToken = data['access_token'] as String?;
       final nextRefreshToken =
           data['refresh_token'] as String? ?? refreshToken;
@@ -381,7 +451,8 @@ class ApiClient {
     return '${AppConstants.requestIdPrefix}-${DateTime.now().millisecondsSinceEpoch}-$_requestCounter';
   }
 
-  static Map<String, dynamic> _asMap(Object? value) {
+  /// Public helper so repositories can use it for safe parsing.
+  static Map<String, dynamic> asMap(Object? value) {
     return value is Map<String, dynamic> ? value : <String, dynamic>{};
   }
 }

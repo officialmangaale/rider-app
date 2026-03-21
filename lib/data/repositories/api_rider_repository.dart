@@ -26,54 +26,31 @@ class ApiRiderRepository implements RiderRepository {
   @override
   Future<RiderHubState> bootstrap() async {
     final now = DateTime.now();
+    // Only call endpoints that actually exist on the backend.
     final futures = await Future.wait<Object?>([
-      _api.riderProfile.me(),
-      _api.riderProfile.status(),
-      _safeList(() => _api.availability.todayShift()),
-      _safeList(() => _api.orders.orderRequests()),
-      _activeOrderOrNull(),
-      _safeList(() => _api.orders.assignedOrders()),
-      _safeList(() => _api.orders.orderHistory()),
-      _safeList(() => _api.notifications.notifications()),
-      _api.ratings.summary(),
-      _safeList(() => _api.ratings.reviews()),
-      _api.ratings.performanceScore(),
-      _api.earnings.today(),
-      _api.earnings.weekly(),
-      _api.earnings.monthly(),
-      _api.earnings.summary(),
-      _safeList(() => _api.earnings.incentives()),
-      _safeList(() => _api.earnings.bonusHistory()),
-      _safeList(() => _api.earnings.walletTransactions()),
-      _safeList(() => _api.earnings.payouts()),
-      _safeObject(() => _api.earnings.bankAccount()),
-      _loadSupportFaqs(),
+      _api.rider.me(),                              // 0  profile
+      _api.rider.getAvailability(),                  // 1  availability
+      _safeObject(() => _api.orders.incomingAssignment()), // 2  incoming
+      _activeOrderOrNull(),                          // 3  active order
+      _safeObject(() => _api.orders.orderHistory()), // 4  history
+      _safeObject(() => _api.notifications.list()),  // 5  notifications
+      _api.earnings.summary(),                       // 6  earnings summary
+      _safeObject(() => _api.earnings.history()),     // 7  earnings history
+      _loadSupportFaqs(),                            // 8  support FAQs
     ]);
 
     final profileEnvelope = futures[0] as dynamic;
-    final statusEnvelope = futures[1] as dynamic;
-    final todayShift = futures[2] as List<dynamic>;
-    final orderRequests = futures[3] as List<dynamic>;
-    final activeOrderPayload = futures[4] as Map<String, dynamic>?;
-    final assignedOrdersPayload = futures[5] as List<dynamic>;
-    final historyPayload = futures[6] as List<dynamic>;
-    final notificationsPayload = futures[7] as List<dynamic>;
-    final ratingSummaryEnvelope = futures[8] as dynamic;
-    final reviewsPayload = futures[9] as List<dynamic>;
-    final performanceEnvelope = futures[10] as dynamic;
-    final todayEarningsEnvelope = futures[11] as dynamic;
-    final weeklyEarningsEnvelope = futures[12] as dynamic;
-    final monthlyEarningsEnvelope = futures[13] as dynamic;
-    final earningsSummaryEnvelope = futures[14] as dynamic;
-    final incentivesPayload = futures[15] as List<dynamic>;
-    final bonusPayload = futures[16] as List<dynamic>;
-    final walletTransactionsPayload = futures[17] as List<dynamic>;
-    final payoutsPayload = futures[18] as List<dynamic>;
-    final bankAccountPayload = futures[19] as Map<String, dynamic>;
-    final supportFaqs = futures[20] as List<SupportFaq>;
+    final availabilityEnvelope = futures[1] as dynamic;
+    final incomingEnvelope = futures[2] as Map<String, dynamic>?;
+    final activeOrderPayload = futures[3] as Map<String, dynamic>?;
+    final historyEnvelope = futures[4] as Map<String, dynamic>?;
+    final notificationsEnvelope = futures[5] as Map<String, dynamic>?;
+    final earningsSummaryEnvelope = futures[6] as dynamic;
+    final earningsHistoryEnvelope = futures[7] as Map<String, dynamic>?;
+    final supportFaqs = futures[8] as List<SupportFaq>;
 
     final profileData = _asMap(profileEnvelope.data);
-    final statusData = _asMap(statusEnvelope.data);
+    final availData = _asMap(availabilityEnvelope.data);
     final user = _asMap(profileData['user']);
     final rider = _asMap(profileData['rider']);
     final vehicle = _asMap(profileData['vehicle']);
@@ -82,97 +59,79 @@ class ApiRiderRepository implements RiderRepository {
         .where((item) => item.isNotEmpty)
         .toList();
 
-    final incomingOrders = orderRequests
-        .map((entry) => _mapDeliveryOrder(entry, now: now, isIncoming: true))
-        .toList()
-      ..sort((a, b) => a.countdownSeconds.compareTo(b.countdownSeconds));
+    // Parse incoming assignment
+    final incomingData = incomingEnvelope ?? <String, dynamic>{};
+    final incomingAssignment = incomingData['assignment'];
+    final incomingOrder = incomingData['order'];
+    final List<DeliveryOrder> incomingOrders;
+    if (incomingAssignment != null && incomingOrder != null) {
+      final merged = <String, dynamic>{
+        ..._asMap(incomingOrder),
+        'assignment': incomingAssignment,
+      };
+      incomingOrders = [_mapDeliveryOrder(merged, now: now, isIncoming: true)];
+    } else {
+      incomingOrders = [];
+    }
 
     DeliveryOrder? activeOrder = activeOrderPayload == null
         ? null
         : _mapDeliveryOrder(activeOrderPayload, now: now);
 
-    var queuedOrders = assignedOrdersPayload
-        .map((entry) => _mapDeliveryOrder(entry, now: now, isMultiOrder: true))
-        .where((entry) => entry.id != activeOrder?.id)
-        .toList();
+    // No queued orders — backend only supports single active.
+    final queuedOrders = <DeliveryOrder>[];
 
-    if (activeOrder == null && queuedOrders.isNotEmpty) {
-      activeOrder = queuedOrders.first.copyWith(isMultiOrder: false);
-      queuedOrders = queuedOrders.sublist(1);
-    }
-    if (queuedOrders.isNotEmpty) {
-      queuedOrders = queuedOrders
-          .map((entry) => entry.copyWith(isMultiOrder: true))
-          .toList();
-    }
-
-    final history = historyPayload.map(_mapDeliveryRecord).toList()
+    // Parse history from paginated response
+    final historyItems = _asList(
+      historyEnvelope?['items'] ?? historyEnvelope?['data'] ?? [],
+    );
+    final history = historyItems.map(_mapDeliveryRecord).toList()
       ..sort((a, b) => b.completedAt.compareTo(a.completedAt));
 
-    final notifications = notificationsPayload.map(_mapNotification).toList()
+    // Parse notifications from paginated response
+    final notifItems = _asList(
+      notificationsEnvelope?['items'] ?? notificationsEnvelope?['data'] ?? [],
+    );
+    final notifications = notifItems.map(_mapNotification).toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    final todayEarningsData = _asMap(todayEarningsEnvelope.data);
-    final weeklyEarningsData = _asMap(weeklyEarningsEnvelope.data);
-    final monthlyEarningsData = _asMap(monthlyEarningsEnvelope.data);
+    // Earnings — backend only has summary + history
     final earningsSummaryData = _asMap(earningsSummaryEnvelope.data);
-    final walletData = _asMap(earningsSummaryData['wallet']);
-    final monthlyRecords = _extractRecords(monthlyEarningsData);
-    final payoutTransactions = walletTransactionsPayload
-        .map(_mapWalletTransaction)
-        .toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final payoutRequests = payoutsPayload.map(_asMap).toList();
+    final earningsHistoryItems = _asList(
+      earningsHistoryEnvelope?['items'] ?? earningsHistoryEnvelope?['data'] ?? [],
+    );
+    final earningsRecords = earningsHistoryItems.map(_asMap).toList();
 
+    final totalEarnings = _asDouble(earningsSummaryData['total_earnings']);
     final earnings = EarningsReport(
-      daily: _asDouble(todayEarningsData['total']),
-      weekly: _asDouble(weeklyEarningsData['total']),
-      monthly: _asDouble(monthlyEarningsData['total']),
-      incentives: _sumByKeys(
-        incentivesPayload.map(_asMap),
-        const ['incentive_amount', 'amount', 'net_earning'],
-      ),
-      tips: _sumByKeys(monthlyRecords, const ['tip_amount']),
-      bonus: _sumByKeys(
-        bonusPayload.map(_asMap),
-        const ['bonus_amount', 'surge_bonus', 'incentive_amount', 'amount'],
-      ),
-      trend: _buildTrendPoints(monthlyRecords),
-      payoutHistory: _buildPayoutHistoryPoints(payoutRequests, payoutTransactions),
+      daily: _asDouble(earningsSummaryData['today_earnings'] ?? totalEarnings),
+      weekly: _asDouble(earningsSummaryData['weekly_earnings'] ?? totalEarnings),
+      monthly: _asDouble(earningsSummaryData['monthly_earnings'] ?? totalEarnings),
+      incentives: _asDouble(earningsSummaryData['incentive_earnings']),
+      tips: _asDouble(earningsSummaryData['tip_earnings']),
+      bonus: _asDouble(earningsSummaryData['bonus_earnings']),
+      trend: _buildTrendPoints(earningsRecords),
+      payoutHistory: const [],
     );
 
     final payoutSummary = PayoutSummary(
-      walletBalance: _asDouble(walletData['balance']),
-      pendingPayout:
-          _sumPayoutAmounts(
-            payoutRequests,
-            const ['pending', 'approved', 'processing'],
-          ) +
-          _asDouble(walletData['hold_balance']),
-      settledPayout: _sumPayoutAmounts(
-        payoutRequests,
-        const ['paid', 'settled', 'completed'],
-      ),
-      bankAccountMasked: _maskedBankAccount(bankAccountPayload),
-      transactions: payoutTransactions,
+      walletBalance: _asDouble(earningsSummaryData['wallet_balance']),
+      pendingPayout: _asDouble(earningsSummaryData['pending_payout']),
+      settledPayout: _asDouble(earningsSummaryData['settled_payout']),
+      bankAccountMasked: _stringOrNull(earningsSummaryData['bank_account_masked']) ?? '',
+      transactions: const [],
     );
 
-    final ratingsSummaryData = _asMap(ratingSummaryEnvelope.data);
-    final performanceData = _asMap(performanceEnvelope.data);
-    final averageRating = _asDouble(
-      ratingsSummaryData['average_rating'] ?? rider['avg_rating'],
-    );
-    final reviews = reviewsPayload.map(_mapReview).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
+    // Ratings — no backend endpoint, use data from profile
+    final averageRating = _asDouble(rider['avg_rating']);
     final reviewInsights = ReviewInsights(
       averageRating: averageRating,
-      performanceScore: _asDouble(performanceData['score']),
+      performanceScore: _asDouble(rider['performance_score']),
       compliments: _buildCompliments(
-        performanceData: performanceData,
+        performanceData: rider,
         averageRating: averageRating,
       ),
-      reviews: reviews,
+      reviews: const [],
     );
 
     final allAddresses = <String>[
@@ -182,7 +141,7 @@ class ApiRiderRepository implements RiderRepository {
     ];
     final activeStatus = availabilityStatusFromJson(
       _stringOrFallback(
-        statusData['availability_status'],
+        availData['is_available'] == true ? 'online' : 'offline',
         fallback: _stringOrFallback(rider['availability_status']),
       ),
     );
@@ -190,8 +149,8 @@ class ApiRiderRepository implements RiderRepository {
     final shiftSummary = _buildShiftSummary(
       now: now,
       status: activeStatus,
-      statusData: statusData,
-      todayShift: todayShift.map(_asMap).toList(),
+      statusData: availData,
+      todayShift: const [],
       activeHoursHint: _asDouble(rider['active_hours_today']),
     );
 
@@ -227,13 +186,13 @@ class ApiRiderRepository implements RiderRepository {
       licenseStatus: _licenseStatus(
         documents: documents,
         rider: rider,
-        statusData: statusData,
+        statusData: availData,
       ),
       shiftPreference: _preferredWindowLabel(shiftSummary.shiftStart),
       rating: averageRating,
       completedDeliveries: history.length,
       activeDeliveries: activeOrder == null ? 0 : 1,
-      todayEarnings: _asDouble(todayEarningsData['total']),
+      todayEarnings: _asDouble(earningsSummaryData['today_earnings']),
       avatarInitials: _initialsForName(displayName),
     );
 
@@ -337,15 +296,14 @@ class ApiRiderRepository implements RiderRepository {
     switch (status) {
       case AvailabilityStatus.online:
       case AvailabilityStatus.busy:
-        await _endBreakIfActive();
-        await _ensureShiftAndGoOnline();
+        await _api.rider.goOnline();
         return;
       case AvailabilityStatus.onBreak:
-        await _api.availability.startBreak(reason: 'Break requested from app');
+        // Backend has no break concept — just go offline.
+        await _api.rider.goOffline();
         return;
       case AvailabilityStatus.offline:
-        await _endBreakIfActive();
-        await _api.availability.goOffline();
+        await _api.rider.goOffline();
         return;
     }
   }
@@ -373,45 +331,21 @@ class ApiRiderRepository implements RiderRepository {
         await acceptOrder(order.assignmentId!);
         return;
       case DeliveryStage.accepted:
-        await _api.orders.arrivedAtRestaurant(order.id);
+        await _api.delivery.arrivedAtRestaurant(order.id);
         return;
       case DeliveryStage.reachedRestaurant:
-        if (order.pickupOtpRequired) {
-          final providedOtp = otp?.trim() ?? '';
-          if (providedOtp.isEmpty) {
-            throw const ApiException(
-              message: 'Pickup OTP is required before pickup.',
-              errorCode: 'PICKUP_OTP_REQUIRED',
-            );
-          }
-          await _api.otpVerification.verifyPickupOtp(
-            orderId: order.id,
-            otp: providedOtp,
-          );
-        }
-        await _api.orders.pickedUp(order.id);
+        await _api.delivery.pickedUp(order.id);
         return;
       case DeliveryStage.pickedUp:
-        await _api.orders.startDelivery(order.id);
+        // No separate start-delivery in backend — this is a no-op or
+        // goes directly to arrivedAtCustomer for the rider side.
+        await _api.delivery.arrivedAtCustomer(order.id);
         return;
       case DeliveryStage.onTheWay:
-        await _api.orders.arrivedAtCustomer(order.id);
+        await _api.delivery.arrivedAtCustomer(order.id);
         return;
       case DeliveryStage.reachedCustomer:
-        if (order.deliveryOtpRequired) {
-          final providedOtp = otp?.trim() ?? '';
-          if (providedOtp.isEmpty) {
-            throw const ApiException(
-              message: 'Delivery OTP is required before completion.',
-              errorCode: 'DELIVERY_OTP_REQUIRED',
-            );
-          }
-          await _api.otpVerification.verifyDeliveryOtp(
-            orderId: order.id,
-            otp: providedOtp,
-          );
-        }
-        await _api.orders.deliver(order.id);
+        await _api.delivery.delivered(order.id);
         return;
       case DeliveryStage.delivered:
         return;
@@ -442,33 +376,8 @@ class ApiRiderRepository implements RiderRepository {
     );
   }
 
-  Future<void> _endBreakIfActive() async {
-    try {
-      await _api.availability.endBreak();
-    } on ApiException catch (error) {
-      if (error.errorCode != 'NO_ACTIVE_BREAK' && error.statusCode != 404) {
-        rethrow;
-      }
-    }
-  }
-
-  Future<void> _ensureShiftAndGoOnline() async {
-    try {
-      await _api.availability.goOnline();
-    } on ApiException catch (error) {
-      if (error.errorCode == 'SHIFT_REQUIRED' ||
-          error.errorCode == 'NO_ACTIVE_SHIFT') {
-        await _api.availability.startShift();
-        await _api.availability.goOnline();
-        return;
-      }
-      if (error.errorCode == 'SHIFT_ALREADY_ACTIVE') {
-        await _api.availability.goOnline();
-        return;
-      }
-      rethrow;
-    }
-  }
+  // _endBreakIfActive and _ensureShiftAndGoOnline are no longer needed.
+  // Backend has no break/shift concept.
 
   Future<List<dynamic>> _safeList(Future<dynamic> Function() request) async {
     try {
