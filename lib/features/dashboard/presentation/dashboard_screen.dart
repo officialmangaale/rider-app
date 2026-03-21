@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
@@ -11,16 +13,86 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/utils/delivery_helpers.dart';
 import '../../../domain/entities/app_models.dart';
 import '../../../presentation/providers/app_providers.dart';
+import '../../../core/services/fcm_service.dart';
 import '../../../shared/widgets/feedback_widgets.dart';
 import '../../../shared/widgets/premium_cards.dart';
 import '../../../shared/widgets/premium_controls.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
 
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  StreamSubscription<Position>? _positionStream;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startLocationStream();
+      ref.read(fcmServiceProvider).init();
+    });
+  }
+
+  @override
+  void dispose() {
+    _positionStream?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _startLocationStream() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return;
+      }
+      if (permission == LocationPermission.deniedForever) return;
+
+      final settings = const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 15,
+      );
+
+      _positionStream = Geolocator.getPositionStream(locationSettings: settings).listen((position) {
+        final shift = ref.read(availabilityControllerProvider).valueOrNull;
+        if (shift?.status == AvailabilityStatus.online) {
+          final api = ref.read(riderBackendApiProvider);
+          api.location.updateLocation(
+            latitude: position.latitude,
+            longitude: position.longitude,
+            heading: position.heading,
+            speed: position.speed,
+          );
+        }
+      });
+    } catch (_) {
+      // Fail silently
+    }
+  }
+
+  Future<void> _launchNavigation(double lat, double lng) async {
+    if (lat == 0 && lng == 0) return;
+    final url = Uri.parse('google.navigation:q=$lat,$lng');
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url);
+    } else {
+      final iosUrl = Uri.parse('https://maps.apple.com/?daddr=$lat,$lng');
+      if (await canLaunchUrl(iosUrl)) {
+        await launchUrl(iosUrl);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final profileAsync = ref.watch(profileControllerProvider);
     final availabilityAsync = ref.watch(availabilityControllerProvider);
     final deliveryAsync = ref.watch(deliveryControllerProvider);
@@ -223,6 +295,21 @@ class DashboardScreen extends ConsumerWidget {
                       Text(
                         '${delivery.activeOrder!.customerName} · ${Formatters.distance(delivery.activeOrder!.distanceKm)}',
                         style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      PremiumButton(
+                        label: delivery.activeOrder!.status == DeliveryStage.assigned || delivery.activeOrder!.status == DeliveryStage.accepted
+                            ? 'Navigate to Pickup'
+                            : 'Navigate to Delivery',
+                        icon: Icons.navigation_rounded,
+                        onPressed: () => _launchNavigation(
+                          delivery.activeOrder!.status == DeliveryStage.assigned || delivery.activeOrder!.status == DeliveryStage.accepted
+                              ? delivery.activeOrder!.restaurantLat
+                              : delivery.activeOrder!.deliveryLat,
+                          delivery.activeOrder!.status == DeliveryStage.assigned || delivery.activeOrder!.status == DeliveryStage.accepted
+                              ? delivery.activeOrder!.restaurantLng
+                              : delivery.activeOrder!.deliveryLng,
+                        ),
                       ),
                     ],
                   ),

@@ -81,7 +81,10 @@ class SessionController extends Notifier<SessionState> {
   }
 
   Future<void> signup({
-    required String name,
+    required String firstName,
+    required String lastName,
+    required String password,
+    required String licenseNumber,
     required String phone,
     required String city,
     required String email,
@@ -89,11 +92,15 @@ class SessionController extends Notifier<SessionState> {
   }) async {
     final api = ref.read(riderBackendApiProvider);
     final envelope = await api.auth.signup(payload: {
-      'name': name,
+      'first_name': firstName,
+      'last_name': lastName,
+      'password': password,
+      'license_number': licenseNumber,
       'phone': phone,
       'city': city,
       'email': email,
       'vehicle_type': vehicleType,
+      'primary_role': 'delivery_driver',
     });
     await _handleAuthTokens(envelope.data);
   }

@@ -1,5 +1,7 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 
+import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 
 class AppBackground extends StatelessWidget {
@@ -7,18 +9,53 @@ class AppBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFFF8FAFC), Color(0xFFF3F6FB)],
-        ),
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+
+    return Container(
+      color: isDark ? const Color(0xFF101317) : const Color(0xFFF3F6FB),
+      child: Stack(
+        children: [
+          Positioned(
+            top: -150,
+            left: -100,
+            child: Container(
+              width: 400,
+              height: 400,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    AppColors.riderPrimary.withValues(alpha: isDark ? 0.15 : 0.08),
+                    AppColors.riderPrimary.withValues(alpha: 0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: -100,
+            right: -150,
+            child: Container(
+              width: 500,
+              height: 500,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    AppColors.emerald.withValues(alpha: isDark ? 0.12 : 0.06),
+                    AppColors.emerald.withValues(alpha: 0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
-      child: const SizedBox.expand(),
     );
   }
 }
+
 
 class PremiumScaffold extends StatelessWidget {
   const PremiumScaffold({
@@ -168,34 +205,44 @@ class GlassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final accentColor = accent;
+    final isDark = scheme.brightness == Brightness.dark;
 
     final card = Container(
       decoration: BoxDecoration(
-        color: scheme.surface,
+        color: scheme.surface.withValues(alpha: isDark ? 0.65 : 0.85),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
           color: accentColor != null
-              ? accentColor.withValues(alpha: 0.22)
-              : scheme.outlineVariant,
+              ? accentColor.withValues(alpha: 0.3)
+              : scheme.outlineVariant.withValues(alpha: 0.5),
         ),
         boxShadow: [
           BoxShadow(
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-            color: scheme.shadow.withValues(alpha: 0.08),
+            blurRadius: 32,
+            spreadRadius: -6,
+            offset: const Offset(0, 16),
+            color: scheme.shadow.withValues(alpha: isDark ? 0.25 : 0.08),
+          ),
+          BoxShadow(
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+            color: scheme.shadow.withValues(alpha: isDark ? 0.15 : 0.04),
           ),
         ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (accentColor != null)
-              Container(height: 4, color: accentColor.withValues(alpha: 0.85)),
-            Padding(padding: padding, child: child),
-          ],
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (accentColor != null)
+                Container(height: 4, color: accentColor.withValues(alpha: 0.85)),
+              Padding(padding: padding, child: child),
+            ],
+          ),
         ),
       ),
     );

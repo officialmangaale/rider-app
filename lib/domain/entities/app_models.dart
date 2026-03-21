@@ -186,6 +186,10 @@ class DeliveryOrder {
     required this.dropAddress,
     required this.restaurantPhone,
     required this.customerPhone,
+    required this.restaurantLat,
+    required this.restaurantLng,
+    required this.deliveryLat,
+    required this.deliveryLng,
     required this.distanceKm,
     required this.etaMinutes,
     required this.payout,
@@ -214,6 +218,10 @@ class DeliveryOrder {
   final String dropAddress;
   final String restaurantPhone;
   final String customerPhone;
+  final double restaurantLat;
+  final double restaurantLng;
+  final double deliveryLat;
+  final double deliveryLng;
   final double distanceKm;
   final int etaMinutes;
   final double payout;
@@ -243,6 +251,10 @@ class DeliveryOrder {
       dropAddress: json['dropAddress'] as String,
       restaurantPhone: json['restaurantPhone'] as String,
       customerPhone: json['customerPhone'] as String,
+      restaurantLat: (json['restaurantLat'] as num?)?.toDouble() ?? 0.0,
+      restaurantLng: (json['restaurantLng'] as num?)?.toDouble() ?? 0.0,
+      deliveryLat: (json['deliveryLat'] as num?)?.toDouble() ?? 0.0,
+      deliveryLng: (json['deliveryLng'] as num?)?.toDouble() ?? 0.0,
       distanceKm: (json['distanceKm'] as num).toDouble(),
       etaMinutes: json['etaMinutes'] as int,
       payout: (json['payout'] as num).toDouble(),
@@ -275,6 +287,10 @@ class DeliveryOrder {
     String? dropAddress,
     String? restaurantPhone,
     String? customerPhone,
+    double? restaurantLat,
+    double? restaurantLng,
+    double? deliveryLat,
+    double? deliveryLng,
     double? distanceKm,
     int? etaMinutes,
     double? payout,
@@ -303,6 +319,10 @@ class DeliveryOrder {
       dropAddress: dropAddress ?? this.dropAddress,
       restaurantPhone: restaurantPhone ?? this.restaurantPhone,
       customerPhone: customerPhone ?? this.customerPhone,
+      restaurantLat: restaurantLat ?? this.restaurantLat,
+      restaurantLng: restaurantLng ?? this.restaurantLng,
+      deliveryLat: deliveryLat ?? this.deliveryLat,
+      deliveryLng: deliveryLng ?? this.deliveryLng,
       distanceKm: distanceKm ?? this.distanceKm,
       etaMinutes: etaMinutes ?? this.etaMinutes,
       payout: payout ?? this.payout,

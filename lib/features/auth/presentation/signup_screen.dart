@@ -18,16 +18,22 @@ class SignupScreen extends ConsumerStatefulWidget {
 }
 
 class _SignupScreenState extends ConsumerState<SignupScreen> {
-  final _nameController = TextEditingController();
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _licenseNumberController = TextEditingController();
   final _phoneController = TextEditingController();
   final _cityController = TextEditingController();
   final _emailController = TextEditingController();
-  String _vehicleType = 'Bike';
+  String _vehicleType = 'Motorcycle';
   bool _submitting = false;
 
   @override
   void dispose() {
-    _nameController.dispose();
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _passwordController.dispose();
+    _licenseNumberController.dispose();
     _phoneController.dispose();
     _cityController.dispose();
     _emailController.dispose();
@@ -114,10 +120,17 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     PremiumTextField(
-                      label: 'Full name',
-                      hint: 'Abdullahi Ahmed',
-                      controller: _nameController,
+                      label: 'First name',
+                      hint: 'Abdullahi',
+                      controller: _firstNameController,
                       prefixIcon: Icons.person_rounded,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    PremiumTextField(
+                      label: 'Last name',
+                      hint: 'Ahmed',
+                      controller: _lastNameController,
+                      prefixIcon: Icons.person_outline_rounded,
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     PremiumTextField(
@@ -129,18 +142,33 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     PremiumTextField(
-                      label: 'City',
-                      hint: 'Your operating city',
-                      controller: _cityController,
-                      prefixIcon: Icons.location_city_rounded,
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    PremiumTextField(
-                      label: 'Email (optional)',
+                      label: 'Email address',
                       hint: 'name@example.com',
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       prefixIcon: Icons.email_rounded,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    PremiumTextField(
+                      label: 'Password',
+                      hint: 'Create a strong password',
+                      controller: _passwordController,
+                      obscureText: true,
+                      prefixIcon: Icons.lock_rounded,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    PremiumTextField(
+                      label: 'License number',
+                      hint: 'DL-123456789',
+                      controller: _licenseNumberController,
+                      prefixIcon: Icons.badge_rounded,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    PremiumTextField(
+                      label: 'City',
+                      hint: 'Your operating city',
+                      controller: _cityController,
+                      prefixIcon: Icons.location_city_rounded,
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     Text(
@@ -150,7 +178,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     const SizedBox(height: AppSpacing.sm),
                     Wrap(
                       spacing: AppSpacing.md,
-                      children: ['Bike', 'Scooter', 'Bicycle'].map((type) {
+                      children: ['Motorcycle', 'Scooter', 'Bicycle'].map((type) {
                         final selected = _vehicleType == type;
                         return ChoiceChip(
                           label: Text(type),
@@ -181,11 +209,21 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   }
 
   Future<void> _submit() async {
-    final name = _nameController.text.trim();
+    final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
+    final password = _passwordController.text.trim();
+    final licenseNumber = _licenseNumberController.text.trim();
     final phone = _phoneController.text.trim();
+    final email = _emailController.text.trim();
     final city = _cityController.text.trim();
 
-    if (name.isEmpty || phone.isEmpty || city.isEmpty) {
+    if (firstName.isEmpty ||
+        lastName.isEmpty ||
+        password.isEmpty ||
+        licenseNumber.isEmpty ||
+        phone.isEmpty ||
+        email.isEmpty ||
+        city.isEmpty) {
       showLuxurySnackBar(context, 'Please fill in all required fields.');
       return;
     }
@@ -193,10 +231,13 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     setState(() => _submitting = true);
     try {
       await ref.read(sessionControllerProvider.notifier).signup(
-        name: name,
+        firstName: firstName,
+        lastName: lastName,
+        password: password,
+        licenseNumber: licenseNumber,
         phone: phone,
+        email: email,
         city: city,
-        email: _emailController.text.trim(),
         vehicleType: _vehicleType.toLowerCase(),
       );
       if (!mounted) return;

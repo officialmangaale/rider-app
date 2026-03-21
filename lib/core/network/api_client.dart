@@ -1,5 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import '../constants/app_constants.dart';
 import 'api_exception.dart';
@@ -215,6 +219,78 @@ class ApiClient {
     );
   }
 
+  Future<ApiEnvelope<Map<String, dynamic>>> postMultipartFile(
+    String path, {
+    required File file,
+    String fileField = 'file',
+    bool requiresAuth = true,
+  }) async {
+    final uri = _buildUri(path, null);
+    final request = http.MultipartRequest('POST', uri);
+
+    request.headers['Accept'] = 'application/json';
+    request.headers['X-Request-ID'] = _nextRequestId();
+
+    if (requiresAuth) {
+      final token = tokenStore.accessToken;
+      if (token != null && token.isNotEmpty) {
+        request.headers['Authorization'] = 'Bearer $token';
+      }
+    }
+
+    final ext = file.path.split('.').last.toLowerCase();
+    MediaType? mediaType;
+    if (ext == 'jpg' || ext == 'jpeg') mediaType = MediaType('image', 'jpeg');
+    else if (ext == 'png') mediaType = MediaType('image', 'png');
+    else if (ext == 'pdf') mediaType = MediaType('application', 'pdf');
+
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        fileField,
+        file.path,
+        contentType: mediaType,
+      ),
+    );
+
+    try {
+      final streamedResponse = await request.send().timeout(timeout);
+      final response = await http.Response.fromStream(streamedResponse);
+      
+      final decoded = _decodeBody(response.body);
+      final payload = decoded is Map<String, dynamic>
+          ? decoded
+          : <String, dynamic>{'success': false, 'message': 'Unexpected response'};
+          
+      final success = payload['success'] as bool? ??
+          (response.statusCode >= 200 && response.statusCode < 300);
+
+      if (!success || response.statusCode < 200 || response.statusCode >= 300) {
+        throw ApiException(
+          message: payload['message'] as String? ?? 'Upload failed.',
+          statusCode: response.statusCode,
+          errorCode: payload['error_code'] as String?,
+          errors: asMap(payload['errors']),
+          rawData: payload,
+        );
+      }
+
+      return ApiEnvelope<Map<String, dynamic>>(
+        success: true,
+        message: payload['message'] as String? ?? '',
+        data: asMap(payload['data']),
+        meta: payload['meta'] is Map<String, dynamic>
+            ? ApiMeta.fromJson(payload['meta'] as Map<String, dynamic>)
+            : null,
+        raw: payload,
+      );
+    } on TimeoutException {
+      throw const ApiException(
+        message: 'Upload timed out. Please check your connection.',
+        statusCode: 0,
+      );
+    }
+  }
+
   Future<ApiEnvelope<T>> request<T>(
     String method,
     String path, {
@@ -355,7 +431,7 @@ class ApiClient {
   }
 
   Uri _buildUri(String path, Map<String, dynamic>? queryParameters) {
-    final uri = Uri.parse('$baseUrl$path');
+    final uri = path.startsWith('http') ? Uri.parse(path) : Uri.parse('$baseUrl$path');
     if (queryParameters == null || queryParameters.isEmpty) {
       return uri;
     }

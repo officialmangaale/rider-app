@@ -51,9 +51,10 @@ class ApiRiderRepository implements RiderRepository {
 
     final profileData = _asMap(profileEnvelope.data);
     final availData = _asMap(availabilityEnvelope.data);
-    final user = _asMap(profileData['user']);
-    final rider = _asMap(profileData['rider']);
-    final vehicle = _asMap(profileData['vehicle']);
+    // Support both nested structured and flat JSON models
+    final user = profileData['user'] is Map ? _asMap(profileData['user']) : profileData;
+    final rider = profileData['rider'] is Map ? _asMap(profileData['rider']) : profileData;
+    final vehicle = profileData['vehicle'] is Map ? _asMap(profileData['vehicle']) : profileData;
     final documents = _asList(profileData['documents'])
         .map(_asMap)
         .where((item) => item.isNotEmpty)
@@ -105,8 +106,8 @@ class ApiRiderRepository implements RiderRepository {
     final totalEarnings = _asDouble(earningsSummaryData['total_earnings']);
     final earnings = EarningsReport(
       daily: _asDouble(earningsSummaryData['today_earnings'] ?? totalEarnings),
-      weekly: _asDouble(earningsSummaryData['weekly_earnings'] ?? totalEarnings),
-      monthly: _asDouble(earningsSummaryData['monthly_earnings'] ?? totalEarnings),
+      weekly: _asDouble(earningsSummaryData['weekly_earnings'] ?? earningsSummaryData['week_earnings'] ?? totalEarnings),
+      monthly: _asDouble(earningsSummaryData['monthly_earnings'] ?? earningsSummaryData['month_earnings'] ?? totalEarnings),
       incentives: _asDouble(earningsSummaryData['incentive_earnings']),
       tips: _asDouble(earningsSummaryData['tip_earnings']),
       bonus: _asDouble(earningsSummaryData['bonus_earnings']),
@@ -123,7 +124,7 @@ class ApiRiderRepository implements RiderRepository {
     );
 
     // Ratings — no backend endpoint, use data from profile
-    final averageRating = _asDouble(rider['avg_rating']);
+    final averageRating = _asDouble(rider['avg_rating'] ?? rider['rating_avg']);
     final reviewInsights = ReviewInsights(
       averageRating: averageRating,
       performanceScore: _asDouble(rider['performance_score']),
@@ -181,6 +182,7 @@ class ApiRiderRepository implements RiderRepository {
           _firstNonEmptyString([
             _stringOrNull(vehicle['registration_no']),
             _stringOrNull(rider['vehicle_number']),
+            _stringOrNull(rider['vehicle_registration_number']),
           ]) ??
           'Vehicle pending',
       licenseStatus: _licenseStatus(
@@ -190,7 +192,7 @@ class ApiRiderRepository implements RiderRepository {
       ),
       shiftPreference: _preferredWindowLabel(shiftSummary.shiftStart),
       rating: averageRating,
-      completedDeliveries: history.length,
+      completedDeliveries: _asInt(rider['total_deliveries']) ?? history.length,
       activeDeliveries: activeOrder == null ? 0 : 1,
       todayEarnings: _asDouble(earningsSummaryData['today_earnings']),
       avatarInitials: _initialsForName(displayName),
@@ -530,6 +532,10 @@ class ApiRiderRepository implements RiderRepository {
             _stringOrNull(entry['customer_phone']),
           ]) ??
           '',
+      restaurantLat: _asDouble(order['restaurant_lat']),
+      restaurantLng: _asDouble(order['restaurant_lng']),
+      deliveryLat: _asDouble(order['delivery_latitude']),
+      deliveryLng: _asDouble(order['delivery_longitude']),
       distanceKm: _asDouble(order['distance_km']),
       etaMinutes:
           _asInt(order['eta_minutes']) ??
@@ -605,8 +611,10 @@ class ApiRiderRepository implements RiderRepository {
         _asDouble(entry['cancellation_compensation']);
     final inferredOutcome = _inferOutcome(entry, order);
     final completedAt =
+        _readDateTime(order['actual_delivery_time']) ??
         _readDateTime(order['delivered_at']) ??
         _readDateTime(order['completed_at']) ??
+        _readDateTime(entry['updated_at']) ??
         _readDateTime(entry['created_at']) ??
         DateTime.now();
 
@@ -614,7 +622,8 @@ class ApiRiderRepository implements RiderRepository {
       id:
           _firstNonEmptyString([
             _stringOrNull(order['id']),
-            _stringOrNull(entry['order_id']),
+            entry['order_id']?.toString(), // Handle integer order_id fallback
+            _stringOrNull(entry['order_number']),
             _stringOrNull(entry['id']),
           ]) ??
           'history-$completedAt',
@@ -646,11 +655,12 @@ class ApiRiderRepository implements RiderRepository {
       distanceKm: _asDouble(order['distance_km']),
       earnings: payout > 0
           ? payout
-          : _asDouble(order['base_payout']) +
+          : _asDouble(order['delivery_fee']) +
+                _asDouble(order['tip_amount']) +
+                _asDouble(order['base_payout']) +
                 _asDouble(order['distance_payout']) +
                 _asDouble(order['waiting_charges']) +
-                _asDouble(order['surge_bonus']) +
-                _asDouble(order['tip_amount']),
+                _asDouble(order['surge_bonus']),
       paymentMethod:
           _firstNonEmptyString([
             _stringOrNull(order['payment_method']),
@@ -712,14 +722,16 @@ class ApiRiderRepository implements RiderRepository {
             'order',
       ),
       createdAt: _readDateTime(entry['created_at']) ?? DateTime.now(),
-      isUnread: _normalizeStatus(
-            _firstNonEmptyString([
-              _stringOrNull(entry['status']),
-              _stringOrNull(entry['read_status']),
-            ]) ??
-                'unread',
-          ) ==
-          'unread',
+      isUnread: entry['is_read'] is bool
+          ? !(entry['is_read'] as bool)
+          : _normalizeStatus(
+                _firstNonEmptyString([
+                  _stringOrNull(entry['status']),
+                  _stringOrNull(entry['read_status']),
+                ]) ??
+                    'unread',
+              ) ==
+              'unread',
     );
   }
 

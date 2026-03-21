@@ -1,6 +1,7 @@
-import '../../core/network/api_client.dart';
+import 'dart:io';
 
-// =============================================================================
+import '../../core/network/api_client.dart';
+import '../../domain/entities/onboarding_models.dart';// =============================================================================
 // RiderBackendApi — Single entry point for all rider-service API calls.
 //
 // Every path below matches the Golang backend router (rider-service) exactly.
@@ -47,13 +48,11 @@ class AuthApi {
     required String deviceName,
   }) {
     return _client.postObject(
-      '/auth/rider/login',
+      '${AppConstants.userApiBaseUrl}/users/login',
       requiresAuth: false,
       body: {
-        'login': login,
+        'email': login,
         'password': password,
-        'device_id': deviceId,
-        'device_name': deviceName,
       },
     );
   }
@@ -90,7 +89,7 @@ class AuthApi {
     required Map<String, dynamic> payload,
   }) {
     return _client.postObject(
-      '/auth/rider/register',
+      '${AppConstants.userApiBaseUrl}/users',
       requiresAuth: false,
       body: payload,
     );
@@ -190,6 +189,11 @@ class RiderApi {
   const RiderApi(this._client);
   final ApiClient _client;
 
+  // --- Upload ---
+  Future<ApiEnvelope<Map<String, dynamic>>> uploadDocument(File file) {
+    return _client.postMultipartFile('/api/v1/upload', file: file);
+  }
+
   // --- Profile ---
   Future<ApiEnvelope<Map<String, dynamic>>> me() {
     return _client.getObject('/api/v1/rider/profile');
@@ -209,33 +213,37 @@ class RiderApi {
 
   // --- Vehicle ---
   Future<ApiEnvelope<Map<String, dynamic>>> updateVehicle({
-    required Map<String, dynamic> payload,
+    required VehiclePayload payload,
   }) {
-    return _client.putObject('/api/v1/rider/vehicle', body: payload);
+    return _client.putObject('/api/v1/rider/vehicle', body: payload.toJson());
   }
 
   // --- Bank Details ---
   Future<ApiEnvelope<Map<String, dynamic>>> updateBankDetails({
-    required Map<String, dynamic> payload,
+    required BankDetailsPayload payload,
   }) {
-    return _client.putObject('/api/v1/rider/bank-details', body: payload);
+    return _client.putObject('/api/v1/rider/bank-details', body: payload.toJson());
   }
 
   /// Legacy alias.
   Future<ApiEnvelope<Map<String, dynamic>>> updateBankAccount({
-    required Map<String, dynamic> payload,
+    required BankDetailsPayload payload,
   }) => updateBankDetails(payload: payload);
 
   // --- KYC ---
   Future<ApiEnvelope<Map<String, dynamic>>> updateKYC({
-    required Map<String, dynamic> payload,
+    required KycPayload payload,
   }) {
-    return _client.putObject('/api/v1/rider/kyc', body: payload);
+    return _client.putObject('/api/v1/rider/kyc', body: payload.toJson());
   }
 
   // --- Onboarding ---
-  Future<ApiEnvelope<Map<String, dynamic>>> onboardingStatus() {
-    return _client.getObject('/api/v1/rider/onboarding-status');
+  Future<ApiEnvelope<OnboardingStatusInfo>> onboardingStatus() {
+    return _client.request<OnboardingStatusInfo>(
+      'GET',
+      '/api/v1/rider/onboarding-status',
+      parser: (data) => OnboardingStatusInfo.fromJson(ApiClient.asMap(data)),
+    );
   }
 
   // --- Dashboard ---
@@ -506,7 +514,11 @@ class NotificationsApi {
   }) => list(queryParameters: queryParameters);
 
   Future<ApiEnvelope<Map<String, dynamic>>> markRead(String id) {
-    return _client.putObject('/api/v1/notifications/$id/read');
+    return _client.request<Map<String, dynamic>>(
+      'PATCH',
+      '/api/v1/notifications/$id/read',
+      parser: (data) => data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{},
+    );
   }
 
   Future<ApiEnvelope<Map<String, dynamic>>> markAllRead() {
@@ -521,7 +533,7 @@ class NotificationsApi {
       '/api/v1/notifications/device-token',
       body: {
         'platform': platform,
-        'push_token': pushToken,
+        'device_token': pushToken,
       },
     );
   }
