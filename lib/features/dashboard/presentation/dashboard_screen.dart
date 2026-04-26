@@ -18,6 +18,9 @@ import '../../../shared/widgets/feedback_widgets.dart';
 import '../../../shared/widgets/premium_cards.dart';
 import '../../../shared/widgets/premium_controls.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
+import '../../delivery/models/delivery_models.dart';
+import '../../delivery/providers/rider_delivery_provider.dart';
+import '../../delivery/widgets/incoming_order_request_sheet.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -26,55 +29,33 @@ class DashboardScreen extends ConsumerStatefulWidget {
   ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends ConsumerState<DashboardScreen> {
-  StreamSubscription<Position>? _positionStream;
-
+class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _startLocationStream();
       ref.read(fcmServiceProvider).init();
     });
   }
 
   @override
   void dispose() {
-    _positionStream?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  Future<void> _startLocationStream() async {
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) return;
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) return;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final deliveryNotifier = ref.read(riderDeliveryControllerProvider.notifier);
+      final deliveryState = ref.read(riderDeliveryControllerProvider);
+      if (deliveryState.isOnline) {
+         deliveryNotifier.refreshPendingRequests();
+         if (deliveryState.activeOrderId != null) {
+            deliveryNotifier.fetchActiveOrder(deliveryState.activeOrderId!);
+         }
       }
-      if (permission == LocationPermission.deniedForever) return;
-
-      final settings = const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 15,
-      );
-
-      _positionStream = Geolocator.getPositionStream(locationSettings: settings).listen((position) {
-        final shift = ref.read(availabilityControllerProvider).valueOrNull;
-        if (shift?.status == AvailabilityStatus.online) {
-          final api = ref.read(riderBackendApiProvider);
-          api.location.updateLocation(
-            latitude: position.latitude,
-            longitude: position.longitude,
-            heading: position.heading,
-            speed: position.speed,
-          );
-        }
-      });
-    } catch (_) {
-      // Fail silently
     }
   }
 
@@ -93,19 +74,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Listen for new incoming requests
+    ref.listen(riderDeliveryControllerProvider.select((s) => s.pendingRequests), (previous, next) {
+      if (next.isNotEmpty) {
+        final newRequests = next.where((r) => !(previous?.any((pr) => pr.requestId == r.requestId) ?? false));
+        for (var request in newRequests) {
+          IncomingOrderRequestSheet.show(context, request);
+        }
+      }
+    });
+
     final profileAsync = ref.watch(profileControllerProvider);
-    final availabilityAsync = ref.watch(availabilityControllerProvider);
     final deliveryAsync = ref.watch(deliveryControllerProvider);
     final earningsAsync = ref.watch(earningsControllerProvider);
     final ordersAsync = ref.watch(ordersControllerProvider);
+    final riderDeliveryState = ref.watch(riderDeliveryControllerProvider);
 
     return PremiumScaffold(
       onRefresh: () async {
         await Future.wait([
           ref.read(profileControllerProvider.notifier).refresh(),
-          ref.read(availabilityControllerProvider.notifier).refresh(),
           ref.read(deliveryControllerProvider.notifier).refresh(),
           ref.read(earningsControllerProvider.notifier).refresh(),
+          ref.read(riderDeliveryControllerProvider.notifier).refreshPendingRequests(),
         ]);
       },
       child: profileAsync.when(
@@ -137,66 +128,57 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               _HeroHeader(
                 name: profile.name,
                 initials: profile.avatarInitials,
-                isOnline: shift?.status == AvailabilityStatus.online,
+                isOnline: riderDeliveryState.isOnline,
                 onNotifications: () => context.push('/notifications'),
               ),
               const SizedBox(height: AppSpacing.xl),
 
               // ── Shift toggle ─────────────────────────────────
-              if (shift != null)
-                GlassCard(
-                  accent: shift.status == AvailabilityStatus.online
-                      ? AppColors.emerald
-                      : AppColors.smoke,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              shift.status == AvailabilityStatus.online
-                                  ? 'You are online'
-                                  : 'You are offline',
-                              style:
-                                  Theme.of(context).textTheme.titleMedium,
-                            ),
-                            if (shift.statusMessage.isNotEmpty) ...[
-                              const SizedBox(height: AppSpacing.xs),
-                              Text(
-                                shift.statusMessage,
-                                style:
-                                    Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ],
-                        ),
+              GlassCard(
+                accent: riderDeliveryState.isOnline
+                    ? AppColors.emerald
+                    : AppColors.smoke,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            riderDeliveryState.isOnline
+                                ? 'You are online'
+                                : 'You are offline',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            riderDeliveryState.isOnline
+                                ? (riderDeliveryState.isAvailable ? 'Waiting for requests...' : 'On active delivery')
+                                : 'Go online to receive delivery requests',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
                       ),
-                      PremiumStatusToggle(
-                        label: 'Shift status',
-                        value:
-                            shift.status == AvailabilityStatus.online,
-                        activeLabel: 'Online',
-                        inactiveLabel: 'Offline',
-                        onChanged: (active) async {
-                          try {
-                            await ref
-                                .read(availabilityControllerProvider
-                                    .notifier)
-                                .setStatus(
-                                  active
-                                      ? AvailabilityStatus.online
-                                      : AvailabilityStatus.offline,
-                                );
-                          } on ApiException catch (e) {
-                            if (!context.mounted) return;
-                            showLuxurySnackBar(context, e.message);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
+                    ),
+                    PremiumStatusToggle(
+                      label: 'Shift status',
+                      value: riderDeliveryState.isOnline,
+                      activeLabel: 'Online',
+                      inactiveLabel: 'Offline',
+                      onChanged: (active) async {
+                        try {
+                          await ref
+                              .read(riderDeliveryControllerProvider.notifier)
+                              .toggleOnline(active);
+                        } catch (e) {
+                          if (!context.mounted) return;
+                          showLuxurySnackBar(context, 'Failed to change status: $e');
+                        }
+                      },
+                    ),
+                  ],
                 ),
+              ),
               const SizedBox(height: AppSpacing.lg),
 
               // ── Metrics ──────────────────────────────────────
@@ -260,7 +242,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               const SizedBox(height: AppSpacing.xl),
 
               // ── Active order preview ─────────────────────────
-              if (delivery?.activeOrder != null)
+              if (riderDeliveryState.activeOrder != null)
                 GlassCard(
                   accent: AppColors.gold,
                   onTap: () => context.go('/delivery'),
@@ -277,15 +259,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         children: [
                           Expanded(
                             child: Text(
-                              delivery!.activeOrder!.restaurantName,
+                              riderDeliveryState.activeOrder!.restaurantName ?? 'Restaurant',
                               style: Theme.of(context)
                                   .textTheme
                                   .titleMedium,
                             ),
                           ),
                           StatusPill(
-                            label: DeliveryHelpers.statusLabel(
-                              delivery.activeOrder!.status,
+                            label: DeliveryStatusHelper.getLabel(
+                              riderDeliveryState.activeOrder!.deliveryStatus,
                             ),
                             color: AppColors.gold,
                           ),
@@ -293,22 +275,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       Text(
-                        '${delivery.activeOrder!.customerName} · ${Formatters.distance(delivery.activeOrder!.distanceKm)}',
+                        '${riderDeliveryState.activeOrder!.customerName ?? "Customer"} · Pick up',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: AppSpacing.md),
                       PremiumButton(
-                        label: delivery.activeOrder!.status == DeliveryStage.assigned || delivery.activeOrder!.status == DeliveryStage.accepted
+                        label: riderDeliveryState.activeOrder!.deliveryStatus == 'rider_assigned'
                             ? 'Navigate to Pickup'
                             : 'Navigate to Delivery',
                         icon: Icons.navigation_rounded,
                         onPressed: () => _launchNavigation(
-                          delivery.activeOrder!.status == DeliveryStage.assigned || delivery.activeOrder!.status == DeliveryStage.accepted
-                              ? delivery.activeOrder!.restaurantLat
-                              : delivery.activeOrder!.deliveryLat,
-                          delivery.activeOrder!.status == DeliveryStage.assigned || delivery.activeOrder!.status == DeliveryStage.accepted
-                              ? delivery.activeOrder!.restaurantLng
-                              : delivery.activeOrder!.deliveryLng,
+                          riderDeliveryState.activeOrder!.deliveryStatus == 'rider_assigned'
+                              ? riderDeliveryState.activeOrder!.pickupLatitude
+                              : riderDeliveryState.activeOrder!.dropLatitude,
+                          riderDeliveryState.activeOrder!.deliveryStatus == 'rider_assigned'
+                              ? riderDeliveryState.activeOrder!.pickupLongitude
+                              : riderDeliveryState.activeOrder!.dropLongitude,
                         ),
                       ),
                     ],
@@ -316,12 +298,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 ),
 
               // ── Incoming orders badge ────────────────────────
-              if ((ordersState?.incoming.length ?? 0) > 0)
+              if (riderDeliveryState.pendingRequests.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.xl),
                   child: GlassCard(
                     accent: AppColors.ember,
-                    onTap: () => context.go('/requests'),
+                    onTap: () {
+                       // Optionally show the first request in the list
+                       IncomingOrderRequestSheet.show(context, riderDeliveryState.pendingRequests.first);
+                    },
                     child: Row(
                       children: [
                         Container(
@@ -344,7 +329,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                 CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${ordersState!.incoming.length} new request${ordersState.incoming.length > 1 ? 's' : ''}',
+                                '${riderDeliveryState.pendingRequests.length} new request${riderDeliveryState.pendingRequests.length > 1 ? 's' : ''}',
                                 style: Theme.of(context)
                                     .textTheme
                                     .titleMedium,
