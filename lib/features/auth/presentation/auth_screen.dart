@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -275,7 +276,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       }
 
       if (!mounted) return;
-      context.go('/home');
+      if (AppConstants.restaurantOwnedRiderMode) {
+        context.go('/active-orders');
+      } else {
+        context.go('/home');
+      }
     } on ApiException catch (e) {
       if (!mounted) return;
       showLuxurySnackBar(context, e.message);

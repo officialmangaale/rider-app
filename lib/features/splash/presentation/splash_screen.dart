@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../../../presentation/providers/app_providers.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -31,7 +32,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     if (!session.hasSeenOnboarding) {
       context.go('/onboarding');
     } else if (session.status == AuthStatus.authenticated) {
-      context.go('/home');
+      if (AppConstants.restaurantOwnedRiderMode) {
+        context.go('/active-orders');
+      } else {
+        context.go('/home');
+      }
     } else {
       context.go('/login');
     }

@@ -39,7 +39,7 @@ final riderBackendApiProvider = Provider<RiderBackendApi>((ref) {
 });
 
 final mapLauncherServiceProvider = Provider<MapLauncherService>((ref) {
-  return PlaceholderMapLauncherService();
+  return UrlLauncherMapLauncherService();
 });
 
 // ---------------------------------------------------------------------------

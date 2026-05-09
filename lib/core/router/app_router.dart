@@ -20,7 +20,12 @@ import '../../features/shell/presentation/app_shell_screen.dart';
 import '../../features/splash/presentation/splash_screen.dart';
 import '../../features/support/presentation/support_screen.dart';
 import '../../features/wallet/presentation/wallet_screen.dart';
-
+import '../constants/app_constants.dart';
+import '../../features/restaurant_rider/presentation/active_orders_screen.dart';
+import '../../features/restaurant_rider/presentation/delivered_orders_screen.dart';
+import '../../features/restaurant_rider/presentation/restaurant_profile_screen.dart';
+import '../../features/restaurant_rider/presentation/order_detail_screen.dart';
+import '../../domain/entities/app_models.dart';
 GoRouter buildAppRouter(Ref ref) {
   CustomTransitionPage<void> buildPage(Widget child, GoRouterState state) {
     return CustomTransitionPage<void>(
@@ -69,53 +74,83 @@ GoRouter buildAppRouter(Ref ref) {
         builder: (context, state, navigationShell) {
           return AppShellScreen(navigationShell: navigationShell);
         },
-        branches: [
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: '/home',
-                pageBuilder: (context, state) =>
-                    const NoTransitionPage(child: DashboardScreen()),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: '/requests',
-                pageBuilder: (context, state) =>
-                    const NoTransitionPage(child: OrdersScreen()),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: '/delivery',
-                pageBuilder: (context, state) =>
-                    const NoTransitionPage(child: ActiveDeliveryScreen()),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: '/earnings',
-                pageBuilder: (context, state) =>
-                    const NoTransitionPage(child: EarningsScreen()),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: '/profile',
-                pageBuilder: (context, state) =>
-                    const NoTransitionPage(child: ProfileScreen()),
-              ),
-            ],
-          ),
-        ],
+        branches: AppConstants.restaurantOwnedRiderMode
+            ? [
+                StatefulShellBranch(
+                  routes: [
+                    GoRoute(
+                      path: '/active-orders',
+                      pageBuilder: (context, state) =>
+                          const NoTransitionPage(child: ActiveOrdersScreen()),
+                    ),
+                  ],
+                ),
+                StatefulShellBranch(
+                  routes: [
+                    GoRoute(
+                      path: '/delivered-orders',
+                      pageBuilder: (context, state) =>
+                          const NoTransitionPage(child: DeliveredOrdersScreen()),
+                    ),
+                  ],
+                ),
+                StatefulShellBranch(
+                  routes: [
+                    GoRoute(
+                      path: '/profile',
+                      pageBuilder: (context, state) =>
+                          const NoTransitionPage(child: RestaurantProfileScreen()),
+                    ),
+                  ],
+                ),
+              ]
+            : [
+                StatefulShellBranch(
+                  routes: [
+                    GoRoute(
+                      path: '/home',
+                      pageBuilder: (context, state) =>
+                          const NoTransitionPage(child: DashboardScreen()),
+                    ),
+                  ],
+                ),
+                StatefulShellBranch(
+                  routes: [
+                    GoRoute(
+                      path: '/requests',
+                      pageBuilder: (context, state) =>
+                          const NoTransitionPage(child: OrdersScreen()),
+                    ),
+                  ],
+                ),
+                StatefulShellBranch(
+                  routes: [
+                    GoRoute(
+                      path: '/delivery',
+                      pageBuilder: (context, state) =>
+                          const NoTransitionPage(child: ActiveDeliveryScreen()),
+                    ),
+                  ],
+                ),
+                StatefulShellBranch(
+                  routes: [
+                    GoRoute(
+                      path: '/earnings',
+                      pageBuilder: (context, state) =>
+                          const NoTransitionPage(child: EarningsScreen()),
+                    ),
+                  ],
+                ),
+                StatefulShellBranch(
+                  routes: [
+                    GoRoute(
+                      path: '/profile',
+                      pageBuilder: (context, state) =>
+                          const NoTransitionPage(child: ProfileScreen()),
+                    ),
+                  ],
+                ),
+              ],
       ),
       GoRoute(
         path: '/navigation',
@@ -162,6 +197,16 @@ GoRouter buildAppRouter(Ref ref) {
         path: '/settings',
         pageBuilder: (context, state) =>
             buildPage(const SettingsScreen(), state),
+      ),
+      GoRoute(
+        path: '/restaurant-order/:id',
+        pageBuilder: (context, state) {
+          final order = state.extra as DeliveryOrder;
+          return buildPage(
+            OrderDetailScreen(orderId: state.pathParameters['id']!, order: order),
+            state,
+          );
+        },
       ),
     ],
   );

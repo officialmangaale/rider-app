@@ -14,4 +14,7 @@ class AppConstants {
   static const preferencesRefreshTokenKey = 'refresh_token';
   static const preferencesDeviceIdKey = 'device_id';
   static const mockRefreshDelayMs = 900;
+  
+  // Feature flags
+  static const restaurantOwnedRiderMode = true;
 }

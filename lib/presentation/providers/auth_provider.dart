@@ -141,6 +141,22 @@ class SessionController extends Notifier<SessionState> {
   }
 
   Future<void> _handleAuthTokens(Map<String, dynamic> data) async {
+    // Validate role for restaurant-owned rider
+    final user = data['user'];
+    if (user != null) {
+      final role = user['primary_role'] as String? ?? 
+                   user['user_type'] as String? ?? 
+                   data['role'] as String? ?? 
+                   data['user_type'] as String?;
+                   
+      if (role != 'rider' && role != 'delivery_driver') {
+        throw const ApiException(
+          message: 'This app is only for riders.',
+          errorCode: 'UNAUTHORIZED_ROLE',
+        );
+      }
+    }
+
     final accessToken = data['access_token'] as String?;
     final refreshToken = data['refresh_token'] as String?;
     if (accessToken != null && accessToken.isNotEmpty) {
