@@ -1,7 +1,12 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
+import '../../core/constants/app_constants.dart';
 import '../../core/network/api_client.dart';
-import '../../domain/entities/onboarding_models.dart';// =============================================================================
+import '../../domain/entities/onboarding_models.dart';
+
+// =============================================================================
 // RiderBackendApi — Single entry point for all rider-service API calls.
 //
 // Every path below matches the Golang backend router (rider-service) exactly.
@@ -29,12 +34,13 @@ class RiderBackendApi {
   /// Legacy accessor aliases used by older providers/screens.
   RiderApi get profile => rider;
   RiderApi get riderProfile => rider;
-  OrdersApi get availability => orders; // availability helpers live on RiderApi but kept for compat
+  OrdersApi get availability =>
+      orders; // availability helpers live on RiderApi but kept for compat
 }
 
 // =============================================================================
-// Auth — handled by shared user-service, NOT rider-service.
-// Paths do NOT include /api/v1 since they live on user-service.
+// Auth — password login/signup live on shared user-service.
+// OTP routes remain on rider-service /auth endpoints.
 // =============================================================================
 
 class AuthApi {
@@ -47,12 +53,19 @@ class AuthApi {
     required String deviceId,
     required String deviceName,
   }) {
+    const endpoint = '${AppConstants.userApiBaseUrl}/users/login';
+    _debugAuthRequest(
+      endpoint: endpoint,
+      payloadKeys: const ['email', 'password', 'device_id', 'device_name'],
+    );
     return _client.postObject(
-      '${AppConstants.userApiBaseUrl}/users/login',
+      endpoint,
       requiresAuth: false,
       body: {
         'email': login,
         'password': password,
+        'device_id': deviceId,
+        'device_name': deviceName,
       },
     );
   }
@@ -73,6 +86,10 @@ class AuthApi {
     required String deviceId,
     required String deviceName,
   }) {
+    _debugAuthRequest(
+      endpoint: '${_client.baseUrl}/auth/rider/otp/verify',
+      payloadKeys: const ['login', 'otp', 'device_id', 'device_name'],
+    );
     return _client.postObject(
       '/auth/rider/otp/verify',
       requiresAuth: false,
@@ -102,16 +119,11 @@ class AuthApi {
     return _client.postObject(
       '/auth/refresh-token',
       requiresAuth: false,
-      body: {
-        'refresh_token': refreshToken,
-        'device_id': deviceId,
-      },
+      body: {'refresh_token': refreshToken, 'device_id': deviceId},
     );
   }
 
-  Future<ApiEnvelope<Map<String, dynamic>>> logout({
-    String? refreshToken,
-  }) {
+  Future<ApiEnvelope<Map<String, dynamic>>> logout({String? refreshToken}) {
     if (refreshToken != null) {
       return _client.postObject(
         '/auth/logout',
@@ -143,11 +155,7 @@ class AuthApi {
     return _client.postObject(
       '/auth/reset-password',
       requiresAuth: false,
-      body: {
-        'login': login,
-        'otp': otp,
-        'new_password': newPassword,
-      },
+      body: {'login': login, 'otp': otp, 'new_password': newPassword},
     );
   }
 
@@ -166,18 +174,40 @@ class AuthApi {
     required String otp,
     String deviceId = '',
     String deviceName = 'Flutter Rider',
-  }) => verifyRiderOtp(login: login, otp: otp, deviceId: deviceId, deviceName: deviceName);
+  }) => verifyRiderOtp(
+    login: login,
+    otp: otp,
+    deviceId: deviceId,
+    deviceName: deviceName,
+  );
 
   Future<ApiEnvelope<Map<String, dynamic>>> loginWithPassword({
     required String login,
     required String password,
     String deviceId = '',
     String deviceName = 'Flutter Rider',
-  }) => this.login(login: login, password: password, deviceId: deviceId, deviceName: deviceName);
+  }) => this.login(
+    login: login,
+    password: password,
+    deviceId: deviceId,
+    deviceName: deviceName,
+  );
 
   Future<ApiEnvelope<Map<String, dynamic>>> requestPasswordReset({
     required String login,
   }) => forgotPassword(login: login);
+
+  void _debugAuthRequest({
+    required String endpoint,
+    required List<String> payloadKeys,
+  }) {
+    assert(() {
+      debugPrint(
+        'Auth request started endpoint=$endpoint payloadKeys=${payloadKeys.join(',')}',
+      );
+      return true;
+    }());
+  }
 }
 
 // =============================================================================
@@ -190,8 +220,15 @@ class RiderApi {
   final ApiClient _client;
 
   // --- Upload ---
-  Future<ApiEnvelope<Map<String, dynamic>>> uploadDocument(File file) {
-    return _client.postMultipartFile('/api/v1/upload', file: file);
+  Future<ApiEnvelope<Map<String, dynamic>>> uploadDocument(
+    File file, {
+    ValueChanged<double>? onProgress,
+  }) {
+    return _client.postMultipartFile(
+      '/api/v1/upload',
+      file: file,
+      onProgress: onProgress,
+    );
   }
 
   // --- Profile ---
@@ -222,7 +259,10 @@ class RiderApi {
   Future<ApiEnvelope<Map<String, dynamic>>> updateBankDetails({
     required BankDetailsPayload payload,
   }) {
-    return _client.putObject('/api/v1/rider/bank-details', body: payload.toJson());
+    return _client.putObject(
+      '/api/v1/rider/bank-details',
+      body: payload.toJson(),
+    );
   }
 
   /// Legacy alias.
@@ -280,9 +320,11 @@ class OrdersApi {
   Future<ApiEnvelope<Map<String, dynamic>>> availableOrders({
     Map<String, dynamic>? queryParameters,
   }) {
-    return _client.getObject(
+    return _client.request<Map<String, dynamic>>(
+      'GET',
       '/api/v1/orders/available',
       queryParameters: queryParameters,
+      parser: _mapOrItems,
     );
   }
 
@@ -294,8 +336,12 @@ class OrdersApi {
     return _client.getObject('/api/v1/orders/incoming');
   }
 
-  Future<ApiEnvelope<Map<String, dynamic>>> acceptAssignment(String assignmentId) {
-    return _client.postObject('/api/v1/orders/assignments/$assignmentId/accept');
+  Future<ApiEnvelope<Map<String, dynamic>>> acceptAssignment(
+    String assignmentId,
+  ) {
+    return _client.postObject(
+      '/api/v1/orders/assignments/$assignmentId/accept',
+    );
   }
 
   Future<ApiEnvelope<Map<String, dynamic>>> rejectAssignment(
@@ -315,9 +361,11 @@ class OrdersApi {
   Future<ApiEnvelope<Map<String, dynamic>>> orderHistory({
     Map<String, dynamic>? queryParameters,
   }) {
-    return _client.getObject(
+    return _client.request<Map<String, dynamic>>(
+      'GET',
       '/api/v1/orders/history',
       queryParameters: queryParameters,
+      parser: _mapOrItems,
     );
   }
 
@@ -342,6 +390,19 @@ class OrdersApi {
 
   Future<ApiEnvelope<Map<String, dynamic>>> order(String orderId) =>
       orderDetail(orderId);
+
+  static Map<String, dynamic> _mapOrItems(Object? data) {
+    if (data is List) {
+      return <String, dynamic>{'items': data};
+    }
+    if (data is Map<String, dynamic>) {
+      return data;
+    }
+    if (data is Map) {
+      return data.map((key, value) => MapEntry('$key', value));
+    }
+    return const <String, dynamic>{'items': <dynamic>[]};
+  }
 }
 
 // =============================================================================
@@ -353,8 +414,12 @@ class DeliveryApi {
   const DeliveryApi(this._client);
   final ApiClient _client;
 
-  Future<ApiEnvelope<Map<String, dynamic>>> arrivedAtRestaurant(String orderId) {
-    return _client.postObject('/api/v1/delivery/$orderId/arrived-at-restaurant');
+  Future<ApiEnvelope<Map<String, dynamic>>> arrivedAtRestaurant(
+    String orderId,
+  ) {
+    return _client.postObject(
+      '/api/v1/delivery/$orderId/arrived-at-restaurant',
+    );
   }
 
   Future<ApiEnvelope<Map<String, dynamic>>> pickedUp(String orderId) {
@@ -517,7 +582,8 @@ class NotificationsApi {
     return _client.request<Map<String, dynamic>>(
       'PATCH',
       '/api/v1/notifications/$id/read',
-      parser: (data) => data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{},
+      parser: (data) =>
+          data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{},
     );
   }
 
@@ -531,10 +597,7 @@ class NotificationsApi {
   }) {
     return _client.postObject(
       '/api/v1/notifications/device-token',
-      body: {
-        'platform': platform,
-        'device_token': pushToken,
-      },
+      body: {'platform': platform, 'device_token': pushToken},
     );
   }
 

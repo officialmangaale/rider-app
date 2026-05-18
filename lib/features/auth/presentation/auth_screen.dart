@@ -1,16 +1,16 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/constants/app_constants.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/router/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/feedback_widgets.dart';
 import '../../../shared/widgets/navigation_widgets.dart';
 import '../../../shared/widgets/premium_controls.dart';
-import '../../../shared/widgets/premium_surfaces.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -177,19 +177,22 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                               await ref
                                   .read(sessionControllerProvider.notifier)
                                   .requestPasswordReset(login: login);
-                              if (!mounted) return;
-                              setState(() {
-                                _showReset = true;
-                                _loading = false;
-                              });
+                              if (!context.mounted) return;
+                              setState(() => _showReset = true);
                               showLuxurySnackBar(
                                 context,
                                 'Reset OTP sent to $login.',
                               );
                             } on ApiException catch (e) {
-                              if (!mounted) return;
-                              setState(() => _loading = false);
-                              showLuxurySnackBar(context, e.message);
+                              if (!context.mounted) return;
+                              _showAuthError(e.message);
+                            } catch (e) {
+                              if (!context.mounted) return;
+                              _showAuthError(_fallbackErrorMessage(e));
+                            } finally {
+                              if (context.mounted) {
+                                setState(() => _loading = false);
+                              }
                             }
                           },
                     child: const Text('Forgot password?'),
@@ -205,7 +208,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     TextButton(
-                      onPressed: () => context.push('/signup'),
+                      onPressed: () => context.push(AppRoutes.signup),
                       child: const Text('Sign up'),
                     ),
                   ],
@@ -228,18 +231,36 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   Future<void> _handleAction() async {
     final login = _loginController.text.trim();
     if (login.isEmpty) {
-      showLuxurySnackBar(context, 'Enter your phone or email.');
+      _showAuthError('Enter your phone or email.');
+      return;
+    }
+    if (_showReset) {
+      if (_otpController.text.trim().isEmpty) {
+        _showAuthError('Enter the reset OTP.');
+        return;
+      }
+      if (_newPasswordController.text.trim().isEmpty) {
+        _showAuthError('Enter a new password.');
+        return;
+      }
+    } else if (_usePhone && _showOtp && _otpController.text.trim().isEmpty) {
+      _showAuthError('Enter the OTP code.');
+      return;
+    } else if (!_usePhone && _passwordController.text.trim().isEmpty) {
+      _showAuthError('Enter your password.');
       return;
     }
 
     setState(() => _loading = true);
     try {
       if (_showReset) {
-        await ref.read(sessionControllerProvider.notifier).resetPassword(
-          login: login,
-          otp: _otpController.text.trim(),
-          newPassword: _newPasswordController.text.trim(),
-        );
+        await ref
+            .read(sessionControllerProvider.notifier)
+            .resetPassword(
+              login: login,
+              otp: _otpController.text.trim(),
+              newPassword: _newPasswordController.text.trim(),
+            );
         if (!mounted) return;
         showLuxurySnackBar(context, 'Password reset successful. Sign in now.');
         setState(() {
@@ -262,10 +283,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           showLuxurySnackBar(context, 'OTP sent to $login.');
           return;
         }
-        await ref.read(sessionControllerProvider.notifier).verifyOtp(
-          login: login,
-          otp: _otpController.text.trim(),
-        );
+        await ref
+            .read(sessionControllerProvider.notifier)
+            .verifyOtp(login: login, otp: _otpController.text.trim());
       } else {
         await ref
             .read(sessionControllerProvider.notifier)
@@ -276,17 +296,45 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       }
 
       if (!mounted) return;
-      if (AppConstants.restaurantOwnedRiderMode) {
-        context.go('/active-orders');
-      } else {
-        context.go('/home');
+      final session = ref.read(sessionControllerProvider);
+      if (session.status != AuthStatus.authenticated) {
+        throw const ApiException(
+          message: 'Login did not complete. Please try again.',
+          errorCode: 'AUTH_STATE_NOT_READY',
+        );
       }
+      final role = session.role;
+      final route = AppRoutes.resolvePostAuthRoute(role: role);
+      AppRoutes.debugLogPostAuthRoute(
+        source: 'login',
+        role: role,
+        route: route,
+      );
+      setState(() => _loading = false);
+      context.go(route);
     } on ApiException catch (e) {
       if (!mounted) return;
-      showLuxurySnackBar(context, e.message);
+      _showAuthError(e.message);
+    } catch (e) {
+      if (!mounted) return;
+      _showAuthError(_fallbackErrorMessage(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _showAuthError(String message) {
+    showLuxurySnackBar(context, message, isError: true);
+  }
+
+  String _fallbackErrorMessage(Object error) {
+    if (error is ApiException) {
+      return error.message;
+    }
+    if (kDebugMode) {
+      return 'Login failed: $error';
+    }
+    return 'Login failed. Please try again.';
   }
 }
 

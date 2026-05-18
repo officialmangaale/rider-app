@@ -1,6 +1,10 @@
 class KycPayload {
   const KycPayload({
-    required this.drivingLicenseNumber,
+    this.firstName,
+    this.lastName,
+    this.phone,
+    this.email,
+    required this.licenseNumber,
     required this.drivingLicenseFrontUrl,
     required this.drivingLicenseBackUrl,
     required this.nationalIdType,
@@ -9,7 +13,11 @@ class KycPayload {
     required this.nationalIdBackUrl,
   });
 
-  final String drivingLicenseNumber;
+  final String? firstName;
+  final String? lastName;
+  final String? phone;
+  final String? email;
+  final String licenseNumber;
   final String drivingLicenseFrontUrl;
   final String drivingLicenseBackUrl;
   final String nationalIdType;
@@ -17,15 +25,22 @@ class KycPayload {
   final String nationalIdFrontUrl;
   final String nationalIdBackUrl;
 
-  Map<String, dynamic> toJson() => {
-        'driving_license_number': drivingLicenseNumber,
-        'driving_license_front_url': drivingLicenseFrontUrl,
-        'driving_license_back_url': drivingLicenseBackUrl,
-        'national_id_type': nationalIdType,
-        'national_id_number': nationalIdNumber,
-        'national_id_front_url': nationalIdFrontUrl,
-        'national_id_back_url': nationalIdBackUrl,
-      };
+  Map<String, dynamic> toJson() {
+    final payload = <String, dynamic>{
+      'license_number': licenseNumber,
+      'driving_license_front_url': drivingLicenseFrontUrl,
+      'driving_license_back_url': drivingLicenseBackUrl,
+      'national_id_type': nationalIdType,
+      'national_id_number': nationalIdNumber,
+      'national_id_front_url': nationalIdFrontUrl,
+      'national_id_back_url': nationalIdBackUrl,
+    };
+    _putIfNotBlank(payload, 'first_name', firstName);
+    _putIfNotBlank(payload, 'last_name', lastName);
+    _putIfNotBlank(payload, 'phone', phone);
+    _putIfNotBlank(payload, 'email', email);
+    return payload;
+  }
 }
 
 class VehiclePayload {
@@ -47,15 +62,18 @@ class VehiclePayload {
   final String rcDocumentUrl;
   final String insuranceDocumentUrl;
 
-  Map<String, dynamic> toJson() => {
-        'vehicle_type': vehicleType,
-        'make': make,
-        'model': model,
-        'year': year,
-        'registration_number': registrationNumber,
-        'rc_document_url': rcDocumentUrl,
-        'insurance_document_url': insuranceDocumentUrl,
-      };
+  Map<String, dynamic> toJson() {
+    final payload = <String, dynamic>{
+      'vehicle_type': vehicleType,
+      'make': make,
+      'model': model,
+      'year': year,
+      'registration_number': registrationNumber,
+    };
+    _putIfNotBlank(payload, 'rc_document_url', rcDocumentUrl);
+    _putIfNotBlank(payload, 'insurance_document_url', insuranceDocumentUrl);
+    return payload;
+  }
 }
 
 class BankDetailsPayload {
@@ -74,12 +92,19 @@ class BankDetailsPayload {
   final String branchName;
 
   Map<String, dynamic> toJson() => {
-        'account_holder_name': accountHolderName,
-        'account_number': accountNumber,
-        'ifsc_code': ifscCode,
-        'bank_name': bankName,
-        'branch_name': branchName,
-      };
+    'account_holder_name': accountHolderName,
+    'account_number': accountNumber,
+    'ifsc_code': ifscCode,
+    'bank_name': bankName,
+    'branch_name': branchName,
+  };
+}
+
+void _putIfNotBlank(Map<String, dynamic> payload, String key, String? value) {
+  final trimmed = value?.trim();
+  if (trimmed != null && trimmed.isNotEmpty) {
+    payload[key] = trimmed;
+  }
 }
 
 class OnboardingStatusInfo {
@@ -100,11 +125,13 @@ class OnboardingStatusInfo {
   factory OnboardingStatusInfo.fromJson(Map<String, dynamic> json) {
     return OnboardingStatusInfo(
       currentStatus: json['current_status'] as String? ?? 'pending',
-      completedSteps: (json['completed_steps'] as List<dynamic>?)
+      completedSteps:
+          (json['completed_steps'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
           [],
-      pendingSteps: (json['pending_steps'] as List<dynamic>?)
+      pendingSteps:
+          (json['pending_steps'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
           [],

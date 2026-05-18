@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/constants/app_constants.dart';
+import '../../../core/router/app_routes.dart';
 import '../../../presentation/providers/app_providers.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -30,15 +30,17 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
     final session = ref.read(sessionControllerProvider);
     if (!session.hasSeenOnboarding) {
-      context.go('/onboarding');
+      context.go(AppRoutes.onboarding);
     } else if (session.status == AuthStatus.authenticated) {
-      if (AppConstants.restaurantOwnedRiderMode) {
-        context.go('/active-orders');
-      } else {
-        context.go('/home');
-      }
+      final route = AppRoutes.resolvePostAuthRoute(role: session.role);
+      AppRoutes.debugLogPostAuthRoute(
+        source: 'splash',
+        role: session.role,
+        route: route,
+      );
+      context.go(route);
     } else {
-      context.go('/login');
+      context.go(AppRoutes.login);
     }
   }
 
@@ -52,12 +54,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             SvgPicture.asset(
-              'assets/icons/brand_mark.svg',
-              width: 96,
-              height: 96,
-              colorFilter:
-                  ColorFilter.mode(scheme.primary, BlendMode.srcIn),
-            )
+                  'assets/icons/brand_mark.svg',
+                  width: 96,
+                  height: 96,
+                  colorFilter: ColorFilter.mode(
+                    scheme.primary,
+                    BlendMode.srcIn,
+                  ),
+                )
                 .animate()
                 .scale(
                   begin: const Offset(0.7, 0.7),

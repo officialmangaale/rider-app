@@ -5,6 +5,7 @@ library;
 export 'core_providers.dart';
 export 'auth_provider.dart';
 export 'profile_provider.dart';
+export 'rider_compliance_provider.dart';
 export 'availability_provider.dart';
 export 'orders_provider.dart';
 export 'delivery_provider.dart';

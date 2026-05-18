@@ -52,8 +52,13 @@ class OrdersController extends AsyncNotifier<OrdersState> {
         };
         incomingList = [DeliveryOrder.fromJson(merged)];
       }
-    } catch (_) {
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) {
+        rethrow;
+      }
       // No incoming — that's fine.
+    } catch (_) {
+      // Ignore other errors
     }
 
     return OrdersState(incoming: incomingList);

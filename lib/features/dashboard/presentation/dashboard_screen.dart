@@ -2,18 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/router/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../core/utils/delivery_helpers.dart';
-import '../../../domain/entities/app_models.dart';
-import '../../../presentation/providers/app_providers.dart';
 import '../../../core/services/fcm_service.dart';
+import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/feedback_widgets.dart';
 import '../../../shared/widgets/premium_cards.dart';
 import '../../../shared/widgets/premium_controls.dart';
@@ -21,6 +19,7 @@ import '../../../shared/widgets/premium_surfaces.dart';
 import '../../delivery/models/delivery_models.dart';
 import '../../delivery/providers/rider_delivery_provider.dart';
 import '../../delivery/widgets/incoming_order_request_sheet.dart';
+import '../../delivery/widgets/rider_location_status_card.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -29,7 +28,8 @@ class DashboardScreen extends ConsumerStatefulWidget {
   ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsBindingObserver {
+class _DashboardScreenState extends ConsumerState<DashboardScreen>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
@@ -48,13 +48,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      final deliveryNotifier = ref.read(riderDeliveryControllerProvider.notifier);
+      final deliveryNotifier = ref.read(
+        riderDeliveryControllerProvider.notifier,
+      );
       final deliveryState = ref.read(riderDeliveryControllerProvider);
       if (deliveryState.isOnline) {
-         deliveryNotifier.refreshPendingRequests();
-         if (deliveryState.activeOrderId != null) {
-            deliveryNotifier.fetchActiveOrder(deliveryState.activeOrderId!);
-         }
+        deliveryNotifier.refreshPendingRequests();
+        if (deliveryState.activeOrderId != null) {
+          deliveryNotifier.fetchActiveOrder(deliveryState.activeOrderId!);
+        }
       }
     }
   }
@@ -75,20 +77,36 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
   @override
   Widget build(BuildContext context) {
     // Listen for new incoming requests
-    ref.listen(riderDeliveryControllerProvider.select((s) => s.pendingRequests), (previous, next) {
-      if (next.isNotEmpty) {
-        final newRequests = next.where((r) => !(previous?.any((pr) => pr.requestId == r.requestId) ?? false));
-        for (var request in newRequests) {
-          IncomingOrderRequestSheet.show(context, request);
+    ref.listen(
+      riderDeliveryControllerProvider.select((s) => s.pendingRequests),
+      (previous, next) {
+        if (next.isNotEmpty) {
+          final newRequests = next.where(
+            (r) =>
+                !(previous?.any((pr) => pr.requestId == r.requestId) ?? false),
+          );
+          for (var request in newRequests) {
+            IncomingOrderRequestSheet.show(context, request);
+          }
         }
-      }
-    });
+      },
+    );
 
     final profileAsync = ref.watch(profileControllerProvider);
-    final deliveryAsync = ref.watch(deliveryControllerProvider);
     final earningsAsync = ref.watch(earningsControllerProvider);
-    final ordersAsync = ref.watch(ordersControllerProvider);
+    ref.watch(deliveryControllerProvider);
+    ref.watch(ordersControllerProvider);
     final riderDeliveryState = ref.watch(riderDeliveryControllerProvider);
+    final complianceAsync = ref.watch(riderComplianceControllerProvider);
+    final complianceState = complianceAsync.valueOrNull;
+    final locationReady =
+        riderDeliveryState.locationPermissionGranted ||
+        riderDeliveryState.lastLocationUpdate != null ||
+        (complianceState?.profile.hasLocationSnapshot ?? false);
+    final missingSetup =
+        complianceState?.profile.missingItems(locationReady: locationReady) ??
+        const <String>[];
+    final setupLoading = complianceAsync.isLoading && complianceState == null;
 
     return PremiumScaffold(
       onRefresh: () async {
@@ -96,7 +114,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
           ref.read(profileControllerProvider.notifier).refresh(),
           ref.read(deliveryControllerProvider.notifier).refresh(),
           ref.read(earningsControllerProvider.notifier).refresh(),
-          ref.read(riderDeliveryControllerProvider.notifier).refreshPendingRequests(),
+          ref
+              .read(riderDeliveryControllerProvider.notifier)
+              .refreshPendingRequests(),
         ]);
       },
       child: profileAsync.when(
@@ -111,10 +131,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
           ),
         ),
         data: (profile) {
-          final shift = availabilityAsync.valueOrNull;
-          final delivery = deliveryAsync.valueOrNull;
           final earningsState = earningsAsync.valueOrNull;
-          final ordersState = ordersAsync.valueOrNull;
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(
@@ -129,7 +146,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                 name: profile.name,
                 initials: profile.avatarInitials,
                 isOnline: riderDeliveryState.isOnline,
-                onNotifications: () => context.push('/notifications'),
+                onNotifications: () => context.push(AppRoutes.notifications),
               ),
               const SizedBox(height: AppSpacing.xl),
 
@@ -153,7 +170,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                           const SizedBox(height: AppSpacing.xs),
                           Text(
                             riderDeliveryState.isOnline
-                                ? (riderDeliveryState.isAvailable ? 'Waiting for requests...' : 'On active delivery')
+                                ? (riderDeliveryState.isAvailable
+                                      ? 'Waiting for requests...'
+                                      : 'On active delivery')
                                 : 'Go online to receive delivery requests',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
@@ -165,20 +184,45 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                       value: riderDeliveryState.isOnline,
                       activeLabel: 'Online',
                       inactiveLabel: 'Offline',
-                      onChanged: (active) async {
-                        try {
-                          await ref
-                              .read(riderDeliveryControllerProvider.notifier)
-                              .toggleOnline(active);
-                        } catch (e) {
-                          if (!context.mounted) return;
-                          showLuxurySnackBar(context, 'Failed to change status: $e');
-                        }
-                      },
+                      onChanged:
+                          !riderDeliveryState.isOnline &&
+                              (setupLoading || missingSetup.isNotEmpty)
+                          ? null
+                          : (active) async {
+                              try {
+                                await ref
+                                    .read(
+                                      riderDeliveryControllerProvider.notifier,
+                                    )
+                                    .toggleOnline(active);
+                              } catch (e) {
+                                if (!context.mounted) return;
+                                final message = e is ApiException
+                                    ? e.message
+                                    : 'Could not change your shift status. Please try again.';
+                                showLuxurySnackBar(
+                                  context,
+                                  message,
+                                  isError: true,
+                                );
+                              }
+                            },
                     ),
                   ],
                 ),
               ),
+              if (!riderDeliveryState.isOnline &&
+                  (setupLoading || missingSetup.isNotEmpty)) ...[
+                const SizedBox(height: AppSpacing.md),
+                _DashboardSetupBlocker(
+                  loading: setupLoading,
+                  missing: missingSetup,
+                ),
+              ],
+              if (riderDeliveryState.shouldShowLocationStatus) ...[
+                const SizedBox(height: AppSpacing.lg),
+                const RiderLocationStatusCard(),
+              ],
               const SizedBox(height: AppSpacing.lg),
 
               // ── Metrics ──────────────────────────────────────
@@ -219,8 +263,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                     children: [
                       const SectionHeader(
                         title: 'Performance',
-                        subtitle:
-                            'Earnings trend for your recent shifts.',
+                        subtitle: 'Earnings trend for your recent shifts.',
                       ),
                       const SizedBox(height: AppSpacing.md),
                       SparklineMetricCard(
@@ -245,24 +288,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
               if (riderDeliveryState.activeOrder != null)
                 GlassCard(
                   accent: AppColors.gold,
-                  onTap: () => context.go('/delivery'),
+                  onTap: () => context.go(AppRoutes.delivery),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SectionHeader(
                         title: 'Active delivery',
-                        subtitle:
-                            'Tap to view full delivery details.',
+                        subtitle: 'Tap to view full delivery details.',
                       ),
                       const SizedBox(height: AppSpacing.md),
                       Row(
                         children: [
                           Expanded(
                             child: Text(
-                              riderDeliveryState.activeOrder!.restaurantName ?? 'Restaurant',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium,
+                              riderDeliveryState.activeOrder!.restaurantName ??
+                                  'Restaurant',
+                              style: Theme.of(context).textTheme.titleMedium,
                             ),
                           ),
                           StatusPill(
@@ -279,16 +320,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: AppSpacing.md),
-                      PremiumButton(
-                        label: riderDeliveryState.activeOrder!.deliveryStatus == 'rider_assigned'
+                      SecondaryButton(
+                        label:
+                            riderDeliveryState.activeOrder!.deliveryStatus ==
+                                'rider_assigned'
                             ? 'Navigate to Pickup'
                             : 'Navigate to Delivery',
                         icon: Icons.navigation_rounded,
                         onPressed: () => _launchNavigation(
-                          riderDeliveryState.activeOrder!.deliveryStatus == 'rider_assigned'
+                          riderDeliveryState.activeOrder!.deliveryStatus ==
+                                  'rider_assigned'
                               ? riderDeliveryState.activeOrder!.pickupLatitude
                               : riderDeliveryState.activeOrder!.dropLatitude,
-                          riderDeliveryState.activeOrder!.deliveryStatus == 'rider_assigned'
+                          riderDeliveryState.activeOrder!.deliveryStatus ==
+                                  'rider_assigned'
                               ? riderDeliveryState.activeOrder!.pickupLongitude
                               : riderDeliveryState.activeOrder!.dropLongitude,
                         ),
@@ -304,8 +349,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                   child: GlassCard(
                     accent: AppColors.ember,
                     onTap: () {
-                       // Optionally show the first request in the list
-                       IncomingOrderRequestSheet.show(context, riderDeliveryState.pendingRequests.first);
+                      // Optionally show the first request in the list
+                      IncomingOrderRequestSheet.show(
+                        context,
+                        riderDeliveryState.pendingRequests.first,
+                      );
                     },
                     child: Row(
                       children: [
@@ -314,8 +362,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                           height: 44,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(14),
-                            color:
-                                AppColors.ember.withValues(alpha: 0.14),
+                            color: AppColors.ember.withValues(alpha: 0.14),
                           ),
                           child: const Icon(
                             Icons.delivery_dining_rounded,
@@ -325,28 +372,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                         const SizedBox(width: AppSpacing.md),
                         Expanded(
                           child: Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 '${riderDeliveryState.pendingRequests.length} new request${riderDeliveryState.pendingRequests.length > 1 ? 's' : ''}',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleMedium,
+                                style: Theme.of(context).textTheme.titleMedium,
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 'Tap to view and accept',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall,
+                                style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ],
                           ),
                         ),
-                        const Icon(
-                          Icons.chevron_right_rounded,
-                        ),
+                        const Icon(Icons.chevron_right_rounded),
                       ],
                     ),
                   ),
@@ -360,6 +400,38 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
 }
 
 // ── Hero header ────────────────────────────────────────────────────────────
+
+class _DashboardSetupBlocker extends StatelessWidget {
+  const _DashboardSetupBlocker({required this.loading, required this.missing});
+
+  final bool loading;
+  final List<String> missing;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      accent: AppColors.gold,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.assignment_late_outlined, color: AppColors.gold),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              loading
+                  ? 'Checking rider setup before online mode.'
+                  : 'Complete ${missing.join(', ')} from Profile before going online.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _HeroHeader extends StatelessWidget {
   const _HeroHeader({
@@ -383,10 +455,9 @@ class _HeroHeader extends StatelessWidget {
           backgroundColor: AppColors.riderPrimary.withValues(alpha: 0.12),
           child: Text(
             initials,
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(color: AppColors.riderPrimary),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(color: AppColors.riderPrimary),
           ),
         ),
         const SizedBox(width: AppSpacing.md),
@@ -437,22 +508,22 @@ class _QuickActionsPanel extends StatelessWidget {
               PremiumQuickActionTile(
                 icon: Icons.history_rounded,
                 label: 'History',
-                onTap: () => context.push('/history'),
+                onTap: () => context.push(AppRoutes.history),
               ),
               PremiumQuickActionTile(
                 icon: Icons.attach_money_rounded,
                 label: 'Earnings',
-                onTap: () => context.go('/earnings'),
+                onTap: () => context.go(AppRoutes.earnings),
               ),
               PremiumQuickActionTile(
                 icon: Icons.schedule_rounded,
                 label: 'Availability',
-                onTap: () => context.push('/availability'),
+                onTap: () => context.push(AppRoutes.availability),
               ),
               PremiumQuickActionTile(
                 icon: Icons.support_agent_rounded,
                 label: 'Support',
-                onTap: () => context.push('/support'),
+                onTap: () => context.push(AppRoutes.support),
               ),
             ],
           ),

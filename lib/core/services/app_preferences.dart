@@ -68,14 +68,26 @@ class AppPreferences implements ApiTokenStore {
       (_preferences.getBool(AppConstants.preferencesAuthKey) ?? false) ||
       (accessToken?.isNotEmpty ?? false);
 
+  String? get authRole =>
+      _preferences.getString(AppConstants.preferencesAuthRoleKey);
+
   Future<void> setAuthenticated(bool value) {
     return _preferences.setBool(AppConstants.preferencesAuthKey, value);
   }
 
+  Future<void> setAuthRole(String? role) async {
+    if (role == null || role.isEmpty) {
+      await _preferences.remove(AppConstants.preferencesAuthRoleKey);
+      return;
+    }
+    await _preferences.setString(AppConstants.preferencesAuthRoleKey, role);
+  }
+
   @override
   Future<String> getDeviceId() async {
-    final existing =
-        _preferences.getString(AppConstants.preferencesDeviceIdKey);
+    final existing = _preferences.getString(
+      AppConstants.preferencesDeviceIdKey,
+    );
     if (existing != null && existing.isNotEmpty) {
       return existing;
     }
@@ -109,6 +121,7 @@ class AppPreferences implements ApiTokenStore {
   Future<void> clearTokens() async {
     await _preferences.remove(AppConstants.preferencesAccessTokenKey);
     await _preferences.remove(AppConstants.preferencesRefreshTokenKey);
+    await _preferences.remove(AppConstants.preferencesAuthRoleKey);
     await setAuthenticated(false);
   }
 }

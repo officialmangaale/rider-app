@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -5,13 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/router/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/delivery_helpers.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/feedback_widgets.dart';
-import '../../../shared/widgets/premium_cards.dart';
 import '../../../shared/widgets/premium_controls.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
 
@@ -25,8 +27,7 @@ class OrdersScreen extends ConsumerWidget {
     return PremiumScaffold(
       title: 'Requests',
       subtitle: 'Incoming delivery requests waiting for your response.',
-      onRefresh: () =>
-          ref.read(ordersControllerProvider.notifier).refresh(),
+      onRefresh: () => ref.read(ordersControllerProvider.notifier).refresh(),
       child: ordersAsync.when(
         loading: () => const Padding(
           padding: EdgeInsets.all(AppSpacing.xl),
@@ -67,8 +68,7 @@ class OrdersScreen extends ConsumerWidget {
               AppSpacing.xl,
             ),
             itemCount: state.incoming.length,
-            separatorBuilder: (_, __) =>
-                const SizedBox(height: AppSpacing.md),
+            separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
             itemBuilder: (context, index) {
               final order = state.incoming[index];
               return _IncomingOrderCard(order: order);
@@ -87,8 +87,7 @@ class _IncomingOrderCard extends ConsumerStatefulWidget {
   final dynamic order;
 
   @override
-  ConsumerState<_IncomingOrderCard> createState() =>
-      _IncomingOrderCardState();
+  ConsumerState<_IncomingOrderCard> createState() => _IncomingOrderCardState();
 }
 
 class _IncomingOrderCardState extends ConsumerState<_IncomingOrderCard> {
@@ -157,7 +156,9 @@ class _IncomingOrderCardState extends ConsumerState<_IncomingOrderCard> {
                 child: Text(
                   '${_remaining}s',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: _remaining > 15 ? AppColors.emerald : AppColors.ember,
+                    color: _remaining > 15
+                        ? AppColors.emerald
+                        : AppColors.ember,
                   ),
                 ),
               ),
@@ -173,10 +174,7 @@ class _IncomingOrderCardState extends ConsumerState<_IncomingOrderCard> {
                 color: AppColors.gold,
               ),
               const SizedBox(width: AppSpacing.sm),
-              _Chip(
-                label: '${order.itemsCount} items',
-                color: AppColors.sky,
-              ),
+              _Chip(label: '${order.itemsCount} items', color: AppColors.sky),
               const SizedBox(width: AppSpacing.sm),
               _Chip(
                 label: DeliveryHelpers.priorityLabel(order.priority),
@@ -222,7 +220,7 @@ class _IncomingOrderCardState extends ConsumerState<_IncomingOrderCard> {
           .acceptOrder(order.assignmentId as String);
       // Set as active delivery.
       ref.read(deliveryControllerProvider.notifier).setActiveOrder(order);
-      if (mounted) context.go('/delivery');
+      if (mounted) context.go(AppRoutes.delivery);
     } on ApiException catch (e) {
       if (!mounted) return;
       showLuxurySnackBar(context, e.message);
@@ -247,8 +245,7 @@ class _IncomingOrderCardState extends ConsumerState<_IncomingOrderCard> {
                   value: reason,
                   groupValue: selectedReason,
                   title: Text(reason),
-                  onChanged: (v) =>
-                      setModalState(() => selectedReason = v),
+                  onChanged: (v) => setModalState(() => selectedReason = v),
                 ),
               const SizedBox(height: AppSpacing.md),
               PrimaryButton(
@@ -300,10 +297,10 @@ class _Chip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: Theme.of(context)
-            .textTheme
-            .bodySmall
-            ?.copyWith(color: color, fontWeight: FontWeight.w700),
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

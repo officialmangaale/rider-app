@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
+
 import 'dart:async';
 import 'dart:html' as html;
 
@@ -18,10 +20,9 @@ class _WebPlatformHttpClient implements PlatformHttpClient {
       method: method,
       sendData: body,
       requestHeaders: headers,
-      timeout: 30000,
     ).timeout(const Duration(seconds: 30));
 
-    final rawHeaders = request.getAllResponseHeaders() ?? '';
+    final rawHeaders = request.getAllResponseHeaders();
     final parsedHeaders = <String, String>{};
     for (final line in rawHeaders.split('\n')) {
       final separatorIndex = line.indexOf(':');

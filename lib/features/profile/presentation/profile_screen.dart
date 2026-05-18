@@ -3,12 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/router/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/feedback_widgets.dart';
 import '../../../shared/widgets/premium_controls.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
+import 'widgets/rider_compliance_panel.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -20,23 +22,38 @@ class ProfileScreen extends ConsumerWidget {
     return PremiumScaffold(
       title: 'Profile',
       subtitle: 'Your rider identity, vehicle, and account controls.',
-      onRefresh: () =>
+      onRefresh: () async {
+        await Future.wait([
           ref.read(profileControllerProvider.notifier).refresh(),
+          ref.read(riderComplianceControllerProvider.notifier).refresh(),
+        ]);
+      },
       child: profileAsync.when(
         loading: () => const Padding(
           padding: EdgeInsets.all(AppSpacing.xl),
-          child: Column(children: [ShimmerCard(), SizedBox(height: AppSpacing.md), ShimmerCard()]),
+          child: Column(
+            children: [
+              ShimmerCard(),
+              SizedBox(height: AppSpacing.md),
+              ShimmerCard(),
+            ],
+          ),
         ),
         error: (error, _) => Center(
           child: EmptyStateCard(
             icon: Icons.warning_rounded,
             title: 'Could not load profile',
-            subtitle: error is ApiException ? error.message : 'Something went wrong.',
+            subtitle: error is ApiException
+                ? error.message
+                : 'Something went wrong.',
           ),
         ),
         data: (profile) => ListView(
           padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
+            AppSpacing.xl,
+            0,
+            AppSpacing.xl,
+            AppSpacing.xl,
           ),
           children: [
             // ── Avatar + name ────────────────────────────────
@@ -46,13 +63,12 @@ class ProfileScreen extends ConsumerWidget {
                 children: [
                   CircleAvatar(
                     radius: 32,
-                    backgroundColor:
-                        AppColors.riderPrimary.withValues(alpha: 0.12),
+                    backgroundColor: AppColors.riderPrimary.withValues(
+                      alpha: 0.12,
+                    ),
                     child: Text(
                       profile.avatarInitials,
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineSmall
+                      style: Theme.of(context).textTheme.headlineSmall
                           ?.copyWith(color: AppColors.riderPrimary),
                     ),
                   ),
@@ -77,26 +93,10 @@ class ProfileScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.xl),
-
-            // ── Vehicle ──────────────────────────────────────
-            GlassCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SectionHeader(
-                    title: 'Vehicle details',
-                    subtitle: 'Your registered vehicle information.',
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  _InfoRow(label: 'Type', value: profile.vehicleType),
-                  _InfoRow(label: 'Number', value: profile.vehicleNumber),
-                  _InfoRow(label: 'License', value: profile.licenseStatus),
-                  _InfoRow(label: 'Shift', value: profile.shiftPreference),
-                ],
-              ),
-            ),
+            const RiderCompliancePanel(),
             const SizedBox(height: AppSpacing.xl),
 
+            // ── Vehicle ──────────────────────────────────────
             // ── Account controls ─────────────────────────────
             GlassCard(
               child: Column(
@@ -110,17 +110,17 @@ class ProfileScreen extends ConsumerWidget {
                   _ActionTile(
                     icon: Icons.account_balance_wallet_outlined,
                     label: 'Wallet & payouts',
-                    onTap: () => context.push('/wallet'),
+                    onTap: () => context.push(AppRoutes.wallet),
                   ),
                   _ActionTile(
                     icon: Icons.star_outline_rounded,
                     label: 'Ratings & reviews',
-                    onTap: () => context.push('/ratings'),
+                    onTap: () => context.push(AppRoutes.ratings),
                   ),
                   _ActionTile(
                     icon: Icons.settings_outlined,
                     label: 'Settings',
-                    onTap: () => context.push('/settings'),
+                    onTap: () => context.push(AppRoutes.settings),
                   ),
                 ],
               ),
@@ -154,31 +154,11 @@ class ProfileScreen extends ConsumerWidget {
                 if (confirmed != true || !context.mounted) return;
                 await ref.read(sessionControllerProvider.notifier).logout();
                 if (!context.mounted) return;
-                context.go('/login');
+                context.go(AppRoutes.login);
               },
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-          Text(value, style: Theme.of(context).textTheme.titleSmall),
-        ],
       ),
     );
   }

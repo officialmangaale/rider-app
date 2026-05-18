@@ -12,9 +12,10 @@ class AppConstants {
   static const preferencesAuthKey = 'is_authenticated';
   static const preferencesAccessTokenKey = 'access_token';
   static const preferencesRefreshTokenKey = 'refresh_token';
+  static const preferencesAuthRoleKey = 'auth_role';
   static const preferencesDeviceIdKey = 'device_id';
   static const mockRefreshDelayMs = 900;
-  
+
   // Feature flags
   static const restaurantOwnedRiderMode = true;
 }

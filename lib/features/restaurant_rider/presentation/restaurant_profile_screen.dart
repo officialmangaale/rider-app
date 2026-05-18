@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../presentation/providers/auth_provider.dart';
 import '../../../presentation/providers/profile_provider.dart';
+import '../../profile/presentation/widgets/rider_compliance_panel.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
 import '../providers/restaurant_rider_provider.dart';
 
@@ -34,7 +36,9 @@ class RestaurantProfileScreen extends ConsumerWidget {
                     children: [
                       CircleAvatar(
                         radius: 40,
-                        backgroundColor: AppColors.riderPrimary.withValues(alpha: 0.12),
+                        backgroundColor: AppColors.riderPrimary.withValues(
+                          alpha: 0.12,
+                        ),
                         child: Text(
                           profile.avatarInitials,
                           style: TextStyle(
@@ -47,9 +51,8 @@ class RestaurantProfileScreen extends ConsumerWidget {
                       const SizedBox(height: AppSpacing.md),
                       Text(
                         profile.name,
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: AppSpacing.xs),
                       Text(
@@ -60,9 +63,9 @@ class RestaurantProfileScreen extends ConsumerWidget {
                       ),
                       Text(
                         profile.city,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.smoke,
-                        ),
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodySmall?.copyWith(color: AppColors.smoke),
                       ),
                       const SizedBox(height: AppSpacing.md),
                       Row(
@@ -82,7 +85,8 @@ class RestaurantProfileScreen extends ConsumerWidget {
                           const SizedBox(width: AppSpacing.xl),
                           _ProfileStat(
                             label: 'Today',
-                            value: '₹${profile.todayEarnings.toStringAsFixed(0)}',
+                            value:
+                                '₹${profile.todayEarnings.toStringAsFixed(0)}',
                           ),
                         ],
                       ),
@@ -102,15 +106,20 @@ class RestaurantProfileScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
+            const RiderCompliancePanel(),
+            const SizedBox(height: AppSpacing.lg),
 
             // ── Linked restaurants ────────────────────
             Padding(
-              padding: const EdgeInsets.only(left: AppSpacing.sm, bottom: AppSpacing.sm),
+              padding: const EdgeInsets.only(
+                left: AppSpacing.sm,
+                bottom: AppSpacing.sm,
+              ),
               child: Text(
                 'Linked Restaurants',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
             ),
             linkedRestaurantsState.when(
@@ -124,9 +133,8 @@ class RestaurantProfileScreen extends ConsumerWidget {
                         Expanded(
                           child: Text(
                             'No linked restaurants found.\nYour restaurant owner will assign you.',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppColors.smoke,
-                            ),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: AppColors.smoke),
                           ),
                         ),
                       ],
@@ -145,17 +153,22 @@ class RestaurantProfileScreen extends ConsumerWidget {
                               height: 44,
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(14),
-                                color: AppColors.emerald.withValues(alpha: 0.12),
+                                color: AppColors.emerald.withValues(
+                                  alpha: 0.12,
+                                ),
                               ),
-                              child: const Icon(Icons.storefront_rounded, color: AppColors.emerald, size: 20),
+                              child: const Icon(
+                                Icons.storefront_rounded,
+                                color: AppColors.emerald,
+                                size: 20,
+                              ),
                             ),
                             const SizedBox(width: AppSpacing.md),
                             Expanded(
                               child: Text(
                                 r['name'] as String? ?? 'Restaurant',
-                                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.bold),
                               ),
                             ),
                           ],
@@ -177,7 +190,7 @@ class RestaurantProfileScreen extends ConsumerWidget {
             FilledButton.icon(
               onPressed: () async {
                 await ref.read(sessionControllerProvider.notifier).logout();
-                if (context.mounted) context.go('/login');
+                if (context.mounted) context.go(AppRoutes.login);
               },
               icon: const Icon(Icons.logout_rounded),
               label: const Text('Logout'),
@@ -214,9 +227,9 @@ class _ProfileStat extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
           label,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: AppColors.smoke,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(color: AppColors.smoke),
         ),
       ],
     );

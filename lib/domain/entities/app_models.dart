@@ -2,6 +2,84 @@ String _normalizeEnumValue(String value) {
   return value.trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
 }
 
+Map<String, dynamic> _asMap(Object? value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return value.map((key, value) => MapEntry('$key', value));
+  }
+  return const <String, dynamic>{};
+}
+
+Object? _firstPresent(List<Object?> values) {
+  for (final value in values) {
+    if (value == null) {
+      continue;
+    }
+    if (value is String && value.trim().isEmpty) {
+      continue;
+    }
+    return value;
+  }
+  return null;
+}
+
+String _asString(Object? value, {String fallback = ''}) {
+  final present = _firstPresent([value]);
+  return present == null ? fallback : '$present'.trim();
+}
+
+int _asInt(Object? value, {int fallback = 0}) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value.trim()) ?? fallback;
+  }
+  return fallback;
+}
+
+double _asDouble(Object? value, {double fallback = 0}) {
+  if (value is num) {
+    return value.toDouble();
+  }
+  if (value is String) {
+    return double.tryParse(value.trim()) ?? fallback;
+  }
+  return fallback;
+}
+
+String _joinName(Map<String, dynamic> user) {
+  final fullName = _asString(
+    _firstPresent([user['name'], user['full_name'], user['display_name']]),
+  );
+  if (fullName.isNotEmpty) {
+    return fullName;
+  }
+
+  final parts = [
+    _asString(user['first_name']),
+    _asString(user['last_name']),
+  ].where((part) => part.isNotEmpty).toList();
+  return parts.isEmpty ? 'Rider' : parts.join(' ');
+}
+
+String _initialsForName(String name) {
+  final parts = name
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((part) => part.isNotEmpty)
+      .toList();
+  if (parts.isEmpty) {
+    return 'R';
+  }
+  return parts.take(2).map((part) => part[0]).join().toUpperCase();
+}
+
 enum OrderPriority { vip, rush, standard }
 
 enum OrderType { solo, stacked, scheduled }
@@ -22,41 +100,39 @@ enum AvailabilityStatus { offline, online, busy, onBreak }
 
 enum NotificationType { order, payout, incentive, update, support }
 
-OrderPriority orderPriorityFromJson(String value) => switch (
-  _normalizeEnumValue(value)
-) {
-  'vip' => OrderPriority.vip,
-  'rush' => OrderPriority.rush,
-  _ => OrderPriority.standard,
-};
+OrderPriority orderPriorityFromJson(String value) =>
+    switch (_normalizeEnumValue(value)) {
+      'vip' => OrderPriority.vip,
+      'rush' => OrderPriority.rush,
+      _ => OrderPriority.standard,
+    };
 
-OrderType orderTypeFromJson(String value) => switch (_normalizeEnumValue(value)) {
-  'stacked' => OrderType.stacked,
-  'scheduled' => OrderType.scheduled,
-  _ => OrderType.solo,
-};
+OrderType orderTypeFromJson(String value) =>
+    switch (_normalizeEnumValue(value)) {
+      'stacked' => OrderType.stacked,
+      'scheduled' => OrderType.scheduled,
+      _ => OrderType.solo,
+    };
 
-DeliveryStage deliveryStageFromJson(String value) => switch (
-  _normalizeEnumValue(value)
-) {
-  'accepted' => DeliveryStage.accepted,
-  'reached_restaurant' => DeliveryStage.reachedRestaurant,
-  'pickup_verified' => DeliveryStage.reachedRestaurant,
-  'picked_up' => DeliveryStage.pickedUp,
-  'on_the_way' => DeliveryStage.onTheWay,
-  'reached_customer' => DeliveryStage.reachedCustomer,
-  'delivery_verified' => DeliveryStage.reachedCustomer,
-  'delivered' => DeliveryStage.delivered,
-  _ => DeliveryStage.assigned,
-};
+DeliveryStage deliveryStageFromJson(String value) =>
+    switch (_normalizeEnumValue(value)) {
+      'accepted' => DeliveryStage.accepted,
+      'reached_restaurant' => DeliveryStage.reachedRestaurant,
+      'pickup_verified' => DeliveryStage.reachedRestaurant,
+      'picked_up' => DeliveryStage.pickedUp,
+      'on_the_way' => DeliveryStage.onTheWay,
+      'reached_customer' => DeliveryStage.reachedCustomer,
+      'delivery_verified' => DeliveryStage.reachedCustomer,
+      'delivered' => DeliveryStage.delivered,
+      _ => DeliveryStage.assigned,
+    };
 
-DeliveryOutcome deliveryOutcomeFromJson(String value) => switch (
-  _normalizeEnumValue(value)
-) {
-  'cancelled' => DeliveryOutcome.cancelled,
-  'failed' => DeliveryOutcome.failed,
-  _ => DeliveryOutcome.completed,
-};
+DeliveryOutcome deliveryOutcomeFromJson(String value) =>
+    switch (_normalizeEnumValue(value)) {
+      'cancelled' => DeliveryOutcome.cancelled,
+      'failed' => DeliveryOutcome.failed,
+      _ => DeliveryOutcome.completed,
+    };
 
 AvailabilityStatus availabilityStatusFromJson(String value) {
   switch (_normalizeEnumValue(value)) {
@@ -129,19 +205,118 @@ class RiderProfile {
   final String avatarInitials;
 
   factory RiderProfile.fromJson(Map<String, dynamic> json) {
+    final user = _asMap(json['user']);
+    final rider = _asMap(json['rider']);
+    final vehicle = _asMap(json['vehicle']);
+    final stats = _asMap(json['stats']);
+    final earnings = _asMap(json['earnings']);
+    final source = <String, dynamic>{...json, ...rider};
+    final name = _asString(
+      _firstPresent([
+        json['name'],
+        user['name'],
+        user['full_name'],
+        user['display_name'],
+        _joinName(user),
+      ]),
+      fallback: 'Rider',
+    );
+
     return RiderProfile(
-      name: json['name'] as String,
-      phone: json['phone'] as String,
-      city: json['city'] as String,
-      vehicleType: json['vehicleType'] as String,
-      vehicleNumber: json['vehicleNumber'] as String,
-      licenseStatus: json['licenseStatus'] as String,
-      shiftPreference: json['shiftPreference'] as String,
-      rating: (json['rating'] as num).toDouble(),
-      completedDeliveries: json['completedDeliveries'] as int,
-      activeDeliveries: json['activeDeliveries'] as int,
-      todayEarnings: (json['todayEarnings'] as num).toDouble(),
-      avatarInitials: json['avatarInitials'] as String,
+      name: name,
+      phone: _asString(
+        _firstPresent([
+          json['phone'],
+          user['phone'],
+          user['mobile'],
+          user['phone_number'],
+          source['phone'],
+        ]),
+        fallback: 'Phone not available',
+      ),
+      city: _asString(
+        _firstPresent([json['city'], user['city'], source['city']]),
+        fallback: 'City not set',
+      ),
+      vehicleType: _asString(
+        _firstPresent([
+          json['vehicleType'],
+          json['vehicle_type'],
+          vehicle['vehicle_type'],
+          vehicle['type'],
+          source['vehicle_type'],
+        ]),
+        fallback: 'Vehicle not set',
+      ),
+      vehicleNumber: _asString(
+        _firstPresent([
+          json['vehicleNumber'],
+          json['vehicle_number'],
+          vehicle['vehicle_number'],
+          vehicle['registration_number'],
+          vehicle['registration_no'],
+          source['vehicle_number'],
+        ]),
+        fallback: 'Not added',
+      ),
+      licenseStatus: _asString(
+        _firstPresent([
+          json['licenseStatus'],
+          json['license_status'],
+          source['license_status'],
+          source['kyc_status'],
+          source['approval_status'],
+        ]),
+        fallback: 'Pending',
+      ),
+      shiftPreference: _asString(
+        _firstPresent([
+          json['shiftPreference'],
+          json['shift_preference'],
+          source['shift_preference'],
+          source['availability_status'],
+        ]),
+        fallback: 'Flexible',
+      ),
+      rating: _asDouble(
+        _firstPresent([
+          json['rating'],
+          source['rating'],
+          source['avg_rating'],
+          source['rating_avg'],
+          stats['rating'],
+        ]),
+      ),
+      completedDeliveries: _asInt(
+        _firstPresent([
+          json['completedDeliveries'],
+          json['completed_deliveries'],
+          source['completed_deliveries'],
+          source['total_deliveries'],
+          stats['completed_deliveries'],
+        ]),
+      ),
+      activeDeliveries: _asInt(
+        _firstPresent([
+          json['activeDeliveries'],
+          json['active_deliveries'],
+          source['active_deliveries'],
+          stats['active_deliveries'],
+        ]),
+      ),
+      todayEarnings: _asDouble(
+        _firstPresent([
+          json['todayEarnings'],
+          json['today_earnings'],
+          source['today_earnings'],
+          earnings['today'],
+          earnings['today_earnings'],
+        ]),
+      ),
+      avatarInitials: _asString(
+        _firstPresent([json['avatarInitials'], json['avatar_initials']]),
+        fallback: _initialsForName(name),
+      ),
     );
   }
 
@@ -812,4 +987,3 @@ class RiderHubState {
     );
   }
 }
-

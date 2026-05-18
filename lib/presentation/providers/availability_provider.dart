@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/entities/app_models.dart';
+import '../../features/delivery/providers/rider_delivery_provider.dart';
 import 'core_providers.dart';
 
 // ---------------------------------------------------------------------------
@@ -11,8 +12,8 @@ import 'core_providers.dart';
 
 final availabilityControllerProvider =
     AsyncNotifierProvider<AvailabilityController, ShiftSummary>(
-  AvailabilityController.new,
-);
+      AvailabilityController.new,
+    );
 
 class AvailabilityController extends AsyncNotifier<ShiftSummary> {
   @override
@@ -38,8 +39,9 @@ class AvailabilityController extends AsyncNotifier<ShiftSummary> {
     return ShiftSummary.fromJson({
       'status': statusStr,
       'shiftStart': DateTime.now().toIso8601String(),
-      'shiftEnd':
-          DateTime.now().add(const Duration(hours: 10)).toIso8601String(),
+      'shiftEnd': DateTime.now()
+          .add(const Duration(hours: 10))
+          .toIso8601String(),
       'breakMinutes': 0,
       'preferredWindow': '',
       'activeHours': 0.0,
@@ -49,15 +51,18 @@ class AvailabilityController extends AsyncNotifier<ShiftSummary> {
 
   /// Toggle availability — updates only this provider's state.
   Future<void> setStatus(AvailabilityStatus newStatus) async {
-    final api = ref.read(riderBackendApiProvider);
     switch (newStatus) {
       case AvailabilityStatus.online:
       case AvailabilityStatus.busy:
-        await api.rider.goOnline();
+        await ref
+            .read(riderDeliveryControllerProvider.notifier)
+            .toggleOnline(true);
         break;
       case AvailabilityStatus.offline:
       case AvailabilityStatus.onBreak:
-        await api.rider.goOffline();
+        await ref
+            .read(riderDeliveryControllerProvider.notifier)
+            .toggleOnline(false);
         break;
     }
 

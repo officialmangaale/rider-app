@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/router/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../presentation/providers/app_providers.dart';
@@ -51,8 +52,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
             children: [
               // ── Back button ──────────────────────────────
               IconButton(
-                onPressed: () =>
-                    context.canPop() ? context.pop() : context.go('/login'),
+                onPressed: () => context.canPop()
+                    ? context.pop()
+                    : context.go(AppRoutes.login),
                 icon: const Icon(Icons.arrow_back_rounded),
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -178,22 +180,24 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     const SizedBox(height: AppSpacing.sm),
                     Wrap(
                       spacing: AppSpacing.md,
-                      children: ['Motorcycle', 'Scooter', 'Bicycle'].map((type) {
+                      children: ['Motorcycle', 'Scooter', 'Bicycle'].map((
+                        type,
+                      ) {
                         final selected = _vehicleType == type;
                         return ChoiceChip(
                           label: Text(type),
                           selected: selected,
                           onSelected: (_) =>
                               setState(() => _vehicleType = type),
-                          selectedColor:
-                              AppColors.riderPrimary.withValues(alpha: 0.14),
+                          selectedColor: AppColors.riderPrimary.withValues(
+                            alpha: 0.14,
+                          ),
                         );
                       }).toList(),
                     ),
                     const SizedBox(height: AppSpacing.xl),
                     PrimaryButton(
-                      label:
-                          _submitting ? 'Creating account...' : 'Sign up',
+                      label: _submitting ? 'Creating account...' : 'Sign up',
                       icon: Icons.arrow_forward_rounded,
                       expanded: true,
                       onPressed: _submitting ? null : _submit,
@@ -224,27 +228,54 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         phone.isEmpty ||
         email.isEmpty ||
         city.isEmpty) {
-      showLuxurySnackBar(context, 'Please fill in all required fields.');
+      showLuxurySnackBar(
+        context,
+        'Please fill in all required fields.',
+        isError: true,
+      );
       return;
     }
 
     setState(() => _submitting = true);
     try {
-      await ref.read(sessionControllerProvider.notifier).signup(
-        firstName: firstName,
-        lastName: lastName,
-        password: password,
-        licenseNumber: licenseNumber,
-        phone: phone,
-        email: email,
-        city: city,
-        vehicleType: _vehicleType.toLowerCase(),
-      );
+      await ref
+          .read(sessionControllerProvider.notifier)
+          .signup(
+            firstName: firstName,
+            lastName: lastName,
+            password: password,
+            licenseNumber: licenseNumber,
+            phone: phone,
+            email: email,
+            city: city,
+            vehicleType: _vehicleType.toLowerCase(),
+          );
       if (!mounted) return;
-      context.go('/home');
+      final session = ref.read(sessionControllerProvider);
+      if (session.status != AuthStatus.authenticated) {
+        throw const ApiException(
+          message: 'Signup did not complete. Please try again.',
+          errorCode: 'AUTH_STATE_NOT_READY',
+        );
+      }
+      final role = session.role;
+      final route = AppRoutes.resolvePostAuthRoute(role: role);
+      AppRoutes.debugLogPostAuthRoute(
+        source: 'signup',
+        role: role,
+        route: route,
+      );
+      context.go(route);
     } on ApiException catch (e) {
       if (!mounted) return;
-      showLuxurySnackBar(context, e.message);
+      showLuxurySnackBar(context, e.message, isError: true);
+    } catch (e) {
+      if (!mounted) return;
+      showLuxurySnackBar(
+        context,
+        'Signup failed. Please try again.',
+        isError: true,
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

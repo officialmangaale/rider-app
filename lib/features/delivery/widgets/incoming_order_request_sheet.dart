@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/formatters.dart';
@@ -12,10 +13,7 @@ import '../models/delivery_models.dart';
 import '../providers/rider_delivery_provider.dart';
 
 class IncomingOrderRequestSheet extends ConsumerStatefulWidget {
-  const IncomingOrderRequestSheet({
-    super.key,
-    required this.request,
-  });
+  const IncomingOrderRequestSheet({super.key, required this.request});
 
   final RiderOrderRequestModel request;
 
@@ -31,10 +29,12 @@ class IncomingOrderRequestSheet extends ConsumerStatefulWidget {
   }
 
   @override
-  ConsumerState<IncomingOrderRequestSheet> createState() => _IncomingOrderRequestSheetState();
+  ConsumerState<IncomingOrderRequestSheet> createState() =>
+      _IncomingOrderRequestSheetState();
 }
 
-class _IncomingOrderRequestSheetState extends ConsumerState<IncomingOrderRequestSheet> {
+class _IncomingOrderRequestSheetState
+    extends ConsumerState<IncomingOrderRequestSheet> {
   Timer? _timer;
   int _remainingSeconds = 0;
   bool _isLoading = false;
@@ -51,15 +51,15 @@ class _IncomingOrderRequestSheetState extends ConsumerState<IncomingOrderRequest
   void _calculateRemainingTime() {
     final now = DateTime.now().toUtc();
     final diff = widget.request.expiresAt.difference(now).inSeconds;
-    
+
     if (diff <= 0) {
       _timer?.cancel();
       if (mounted) {
         // Auto dismiss if expired
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Order request expired')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Order request expired')));
       }
     } else {
       if (mounted) {
@@ -79,17 +79,19 @@ class _IncomingOrderRequestSheetState extends ConsumerState<IncomingOrderRequest
   Future<void> _acceptOrder() async {
     setState(() => _isLoading = true);
     try {
-      await ref.read(riderDeliveryControllerProvider.notifier).acceptRequest(widget.request.requestId);
+      await ref
+          .read(riderDeliveryControllerProvider.notifier)
+          .acceptRequest(widget.request.requestId);
       if (mounted) {
         Navigator.of(context).pop();
         // Go to active delivery screen (or home dashboard which routes to active)
-        context.go('/delivery');
+        context.go(AppRoutes.delivery);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to accept order: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to accept order: $e')));
         Navigator.of(context).pop();
       }
     } finally {
@@ -102,7 +104,9 @@ class _IncomingOrderRequestSheetState extends ConsumerState<IncomingOrderRequest
   Future<void> _rejectOrder() async {
     setState(() => _isLoading = true);
     try {
-      await ref.read(riderDeliveryControllerProvider.notifier).rejectRequest(widget.request.requestId);
+      await ref
+          .read(riderDeliveryControllerProvider.notifier)
+          .rejectRequest(widget.request.requestId);
     } catch (_) {
       // Ignore errors on reject
     } finally {
@@ -116,17 +120,20 @@ class _IncomingOrderRequestSheetState extends ConsumerState<IncomingOrderRequest
   @override
   Widget build(BuildContext context) {
     // Listen to pending requests to close automatically if expired or assigned to other
-    ref.listen(riderDeliveryControllerProvider.select((s) => s.pendingRequests), (previous, next) {
-      if (!next.any((r) => r.requestId == widget.request.requestId)) {
-        if (mounted && Navigator.canPop(context)) {
-           Navigator.of(context).pop();
+    ref.listen(
+      riderDeliveryControllerProvider.select((s) => s.pendingRequests),
+      (previous, next) {
+        if (!next.any((r) => r.requestId == widget.request.requestId)) {
+          if (mounted && Navigator.canPop(context)) {
+            Navigator.of(context).pop();
+          }
         }
-      }
-    });
+      },
+    );
 
     return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.background,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: const EdgeInsets.all(AppSpacing.xl),
@@ -140,12 +147,15 @@ class _IncomingOrderRequestSheetState extends ConsumerState<IncomingOrderRequest
               children: [
                 Text(
                   'New Delivery Request',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.ember.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
@@ -167,7 +177,10 @@ class _IncomingOrderRequestSheetState extends ConsumerState<IncomingOrderRequest
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.storefront_rounded, color: AppColors.riderPrimary),
+                      const Icon(
+                        Icons.storefront_rounded,
+                        color: AppColors.riderPrimary,
+                      ),
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(
@@ -178,12 +191,22 @@ class _IncomingOrderRequestSheetState extends ConsumerState<IncomingOrderRequest
                     ],
                   ),
                   const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 10.0),
-                    child: Icon(Icons.more_vert, size: 16, color: AppColors.smoke),
+                    padding: EdgeInsets.symmetric(
+                      vertical: 8.0,
+                      horizontal: 10.0,
+                    ),
+                    child: Icon(
+                      Icons.more_vert,
+                      size: 16,
+                      color: AppColors.smoke,
+                    ),
                   ),
                   Row(
                     children: [
-                      const Icon(Icons.location_on_rounded, color: AppColors.ember),
+                      const Icon(
+                        Icons.location_on_rounded,
+                        color: AppColors.ember,
+                      ),
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(
@@ -203,7 +226,10 @@ class _IncomingOrderRequestSheetState extends ConsumerState<IncomingOrderRequest
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Est. Payout', style: Theme.of(context).textTheme.bodySmall),
+                    Text(
+                      'Est. Payout',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                     Text(
                       Formatters.currency(widget.request.amount),
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -216,7 +242,10 @@ class _IncomingOrderRequestSheetState extends ConsumerState<IncomingOrderRequest
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text('Total Distance', style: Theme.of(context).textTheme.bodySmall),
+                    Text(
+                      'Total Distance',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                     Text(
                       Formatters.distance(widget.request.distanceKm),
                       style: Theme.of(context).textTheme.titleMedium,

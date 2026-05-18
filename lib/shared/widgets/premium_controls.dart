@@ -223,7 +223,7 @@ class PremiumStatusToggle extends StatelessWidget {
 
   final String label;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
   final String activeLabel;
   final String inactiveLabel;
   final IconData activeIcon;
@@ -238,7 +238,7 @@ class PremiumStatusToggle extends StatelessWidget {
     final activeColor = value ? accent : scheme.onSurfaceVariant;
 
     return _TapScale(
-      onTap: () => onChanged(!value),
+      onTap: onChanged == null ? null : () => onChanged!(!value),
       borderRadius: BorderRadius.circular(18),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),

@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element
+
 import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
@@ -28,15 +30,15 @@ class ApiRiderRepository implements RiderRepository {
     final now = DateTime.now();
     // Only call endpoints that actually exist on the backend.
     final futures = await Future.wait<Object?>([
-      _api.rider.me(),                              // 0  profile
-      _api.rider.getAvailability(),                  // 1  availability
+      _api.rider.me(), // 0  profile
+      _api.rider.getAvailability(), // 1  availability
       _safeObject(() => _api.orders.incomingAssignment()), // 2  incoming
-      _activeOrderOrNull(),                          // 3  active order
+      _activeOrderOrNull(), // 3  active order
       _safeObject(() => _api.orders.orderHistory()), // 4  history
-      _safeObject(() => _api.notifications.list()),  // 5  notifications
-      _api.earnings.summary(),                       // 6  earnings summary
-      _safeObject(() => _api.earnings.history()),     // 7  earnings history
-      _loadSupportFaqs(),                            // 8  support FAQs
+      _safeObject(() => _api.notifications.list()), // 5  notifications
+      _api.earnings.summary(), // 6  earnings summary
+      _safeObject(() => _api.earnings.history()), // 7  earnings history
+      _loadSupportFaqs(), // 8  support FAQs
     ]);
 
     final profileEnvelope = futures[0] as dynamic;
@@ -52,13 +54,18 @@ class ApiRiderRepository implements RiderRepository {
     final profileData = _asMap(profileEnvelope.data);
     final availData = _asMap(availabilityEnvelope.data);
     // Support both nested structured and flat JSON models
-    final user = profileData['user'] is Map ? _asMap(profileData['user']) : profileData;
-    final rider = profileData['rider'] is Map ? _asMap(profileData['rider']) : profileData;
-    final vehicle = profileData['vehicle'] is Map ? _asMap(profileData['vehicle']) : profileData;
-    final documents = _asList(profileData['documents'])
-        .map(_asMap)
-        .where((item) => item.isNotEmpty)
-        .toList();
+    final user = profileData['user'] is Map
+        ? _asMap(profileData['user'])
+        : profileData;
+    final rider = profileData['rider'] is Map
+        ? _asMap(profileData['rider'])
+        : profileData;
+    final vehicle = profileData['vehicle'] is Map
+        ? _asMap(profileData['vehicle'])
+        : profileData;
+    final documents = _asList(
+      profileData['documents'],
+    ).map(_asMap).where((item) => item.isNotEmpty).toList();
 
     // Parse incoming assignment
     final incomingData = incomingEnvelope ?? <String, dynamic>{};
@@ -99,15 +106,25 @@ class ApiRiderRepository implements RiderRepository {
     // Earnings — backend only has summary + history
     final earningsSummaryData = _asMap(earningsSummaryEnvelope.data);
     final earningsHistoryItems = _asList(
-      earningsHistoryEnvelope?['items'] ?? earningsHistoryEnvelope?['data'] ?? [],
+      earningsHistoryEnvelope?['items'] ??
+          earningsHistoryEnvelope?['data'] ??
+          [],
     );
     final earningsRecords = earningsHistoryItems.map(_asMap).toList();
 
     final totalEarnings = _asDouble(earningsSummaryData['total_earnings']);
     final earnings = EarningsReport(
       daily: _asDouble(earningsSummaryData['today_earnings'] ?? totalEarnings),
-      weekly: _asDouble(earningsSummaryData['weekly_earnings'] ?? earningsSummaryData['week_earnings'] ?? totalEarnings),
-      monthly: _asDouble(earningsSummaryData['monthly_earnings'] ?? earningsSummaryData['month_earnings'] ?? totalEarnings),
+      weekly: _asDouble(
+        earningsSummaryData['weekly_earnings'] ??
+            earningsSummaryData['week_earnings'] ??
+            totalEarnings,
+      ),
+      monthly: _asDouble(
+        earningsSummaryData['monthly_earnings'] ??
+            earningsSummaryData['month_earnings'] ??
+            totalEarnings,
+      ),
       incentives: _asDouble(earningsSummaryData['incentive_earnings']),
       tips: _asDouble(earningsSummaryData['tip_earnings']),
       bonus: _asDouble(earningsSummaryData['bonus_earnings']),
@@ -119,7 +136,8 @@ class ApiRiderRepository implements RiderRepository {
       walletBalance: _asDouble(earningsSummaryData['wallet_balance']),
       pendingPayout: _asDouble(earningsSummaryData['pending_payout']),
       settledPayout: _asDouble(earningsSummaryData['settled_payout']),
-      bankAccountMasked: _stringOrNull(earningsSummaryData['bank_account_masked']) ?? '',
+      bankAccountMasked:
+          _stringOrNull(earningsSummaryData['bank_account_masked']) ?? '',
       transactions: const [],
     );
 
@@ -358,23 +376,31 @@ class ApiRiderRepository implements RiderRepository {
     final tokens = _asMap(payload['tokens']);
     final accessToken = _firstNonEmptyString([
       _stringOrNull(tokens['access_token']),
+      _stringOrNull(tokens['accessToken']),
+      _stringOrNull(tokens['authToken']),
       _stringOrNull(payload['access_token']),
+      _stringOrNull(payload['accessToken']),
+      _stringOrNull(payload['authToken']),
+      _stringOrNull(payload['token']),
+      _stringOrNull(payload['jwt']),
     ]);
     final refreshToken = _firstNonEmptyString([
       _stringOrNull(tokens['refresh_token']),
+      _stringOrNull(tokens['refreshToken']),
       _stringOrNull(payload['refresh_token']),
+      _stringOrNull(payload['refreshToken']),
     ]);
 
-    if (accessToken == null || refreshToken == null) {
+    if (accessToken == null) {
       throw const ApiException(
-        message: 'Authentication tokens are missing from the response.',
+        message: 'Authentication token is missing from the response.',
         errorCode: 'TOKEN_MISSING',
       );
     }
 
     await _preferences.saveTokens(
       accessToken: accessToken,
-      refreshToken: refreshToken,
+      refreshToken: refreshToken ?? '',
     );
   }
 
@@ -422,7 +448,9 @@ class ApiRiderRepository implements RiderRepository {
 
   Future<List<SupportFaq>> _loadSupportFaqs() async {
     try {
-      final payload = await _assetMockDataSource.loadList('assets/mock/support.json');
+      final payload = await _assetMockDataSource.loadList(
+        'assets/mock/support.json',
+      );
       return payload
           .map((entry) => SupportFaq.fromJson(entry as Map<String, dynamic>))
           .toList();
@@ -454,7 +482,9 @@ class ApiRiderRepository implements RiderRepository {
     final order = entry['order'] is Map<String, dynamic>
         ? _asMap(entry['order'])
         : entry;
-    final items = _asList(entry['items'] ?? order['items']).map(_asMap).toList();
+    final items = _asList(
+      entry['items'] ?? order['items'],
+    ).map(_asMap).toList();
 
     final payout =
         _asDouble(order['base_payout']) +
@@ -474,9 +504,9 @@ class ApiRiderRepository implements RiderRepository {
             (sum, item) => sum + (_asInt(item['quantity']) ?? 1),
           )
         : _asInt(order['items_count']) ??
-            _asInt(order['item_count']) ??
-            _asInt(order['total_items']) ??
-            0;
+              _asInt(order['item_count']) ??
+              _asInt(order['total_items']) ??
+              0;
 
     return DeliveryOrder(
       id:
@@ -546,10 +576,7 @@ class ApiRiderRepository implements RiderRepository {
       itemsCount: itemsCount,
       itemHighlights: _itemHighlights(items),
       priority: _derivePriority(order: order, payout: payout, tip: tip),
-      type: _deriveOrderType(
-        order: order,
-        isMultiOrder: isMultiOrder,
-      ),
+      type: _deriveOrderType(order: order, isMultiOrder: isMultiOrder),
       status: deliveryStageFromJson(
         _firstNonEmptyString([
               _stringOrNull(order['status']),
@@ -605,7 +632,9 @@ class ApiRiderRepository implements RiderRepository {
     final order = entry['order'] is Map<String, dynamic>
         ? _asMap(entry['order'])
         : entry;
-    final items = _asList(entry['items'] ?? order['items']).map(_asMap).toList();
+    final items = _asList(
+      entry['items'] ?? order['items'],
+    ).map(_asMap).toList();
     final payout =
         _asDouble(entry['net_earning']) +
         _asDouble(entry['cancellation_compensation']);
@@ -673,9 +702,9 @@ class ApiRiderRepository implements RiderRepository {
               (sum, item) => sum + (_asInt(item['quantity']) ?? 1),
             )
           : _asInt(order['items_count']) ??
-              _asInt(order['item_count']) ??
-              _asInt(entry['count']) ??
-              0,
+                _asInt(order['item_count']) ??
+                _asInt(entry['count']) ??
+                0,
       outcome: inferredOutcome,
       completedAt: completedAt,
       notes:
@@ -725,13 +754,13 @@ class ApiRiderRepository implements RiderRepository {
       isUnread: entry['is_read'] is bool
           ? !(entry['is_read'] as bool)
           : _normalizeStatus(
-                _firstNonEmptyString([
-                  _stringOrNull(entry['status']),
-                  _stringOrNull(entry['read_status']),
-                ]) ??
-                    'unread',
-              ) ==
-              'unread',
+                  _firstNonEmptyString([
+                        _stringOrNull(entry['status']),
+                        _stringOrNull(entry['read_status']),
+                      ]) ??
+                      'unread',
+                ) ==
+                'unread',
     );
   }
 
@@ -827,7 +856,11 @@ class ApiRiderRepository implements RiderRepository {
         _asInt(activeShift['break_minutes']) ?? _sumBreakMinutes(todayShift);
     final activeHours = activeHoursHint > 0
         ? activeHoursHint
-        : _computeActiveHours(now: now, shiftStart: shiftStart, shiftEnd: shiftEnd);
+        : _computeActiveHours(
+            now: now,
+            shiftStart: shiftStart,
+            shiftEnd: shiftEnd,
+          );
 
     return ShiftSummary(
       status: status,
@@ -882,9 +915,9 @@ class ApiRiderRepository implements RiderRepository {
           .take(4)
           .map(
             (entry) => EarningsPoint(
-              label: DateFormat('dd MMM').format(
-                _readDateTime(entry['requested_at']) ?? DateTime.now(),
-              ),
+              label: DateFormat(
+                'dd MMM',
+              ).format(_readDateTime(entry['requested_at']) ?? DateTime.now()),
               amount: _asDouble(entry['amount']),
             ),
           )
@@ -903,10 +936,9 @@ class ApiRiderRepository implements RiderRepository {
   }
 
   List<Map<String, dynamic>> _extractRecords(Map<String, dynamic> data) {
-    return _asList(data['records'])
-        .map(_asMap)
-        .where((item) => item.isNotEmpty)
-        .toList();
+    return _asList(
+      data['records'],
+    ).map(_asMap).where((item) => item.isNotEmpty).toList();
   }
 
   List<String> _buildCompliments({
@@ -924,7 +956,10 @@ class ApiRiderRepository implements RiderRepository {
       compliments.add('Top-rated rider');
     }
     if (compliments.isEmpty) {
-      compliments.addAll(const ['Consistent service', 'Steady route discipline']);
+      compliments.addAll(const [
+        'Consistent service',
+        'Steady route discipline',
+      ]);
     }
     return compliments;
   }
@@ -1008,10 +1043,7 @@ class ApiRiderRepository implements RiderRepository {
     return total;
   }
 
-  double _sumByKeys(
-    Iterable<Map<String, dynamic>> items,
-    List<String> keys,
-  ) {
+  double _sumByKeys(Iterable<Map<String, dynamic>> items, List<String> keys) {
     var total = 0.0;
     for (final item in items) {
       total += keys
@@ -1075,10 +1107,10 @@ class ApiRiderRepository implements RiderRepository {
   String _displayName(Map<String, dynamic> user) {
     final firstName = _stringOrNull(user['first_name']);
     final lastName = _stringOrNull(user['last_name']);
-    final fullName = [firstName, lastName]
-        .where((part) => part != null && part.trim().isNotEmpty)
-        .join(' ')
-        .trim();
+    final fullName = [
+      firstName,
+      lastName,
+    ].where((part) => part != null && part.trim().isNotEmpty).join(' ').trim();
     if (fullName.isNotEmpty) {
       return fullName;
     }
@@ -1336,5 +1368,3 @@ extension _TakeLastExtension<T> on List<T> {
     return sublist(length - count);
   }
 }
-
-

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
@@ -66,6 +67,7 @@ class ApiEnvelope<T> {
     required this.data,
     this.meta,
     this.raw = const <String, dynamic>{},
+    this.statusCode,
   });
 
   final bool success;
@@ -73,6 +75,7 @@ class ApiEnvelope<T> {
   final T data;
   final ApiMeta? meta;
   final Map<String, dynamic> raw;
+  final int? statusCode;
 }
 
 typedef ApiParser<T> = T Function(dynamic data);
@@ -224,6 +227,7 @@ class ApiClient {
     required File file,
     String fileField = 'file',
     bool requiresAuth = true,
+    ValueChanged<double>? onProgress,
   }) async {
     final uri = _buildUri(path, null);
     final request = http.MultipartRequest('POST', uri);
@@ -240,14 +244,37 @@ class ApiClient {
 
     final ext = file.path.split('.').last.toLowerCase();
     MediaType? mediaType;
-    if (ext == 'jpg' || ext == 'jpeg') mediaType = MediaType('image', 'jpeg');
-    else if (ext == 'png') mediaType = MediaType('image', 'png');
-    else if (ext == 'pdf') mediaType = MediaType('application', 'pdf');
+    if (ext == 'jpg' || ext == 'jpeg') {
+      mediaType = MediaType('image', 'jpeg');
+    } else if (ext == 'png') {
+      mediaType = MediaType('image', 'png');
+    } else if (ext == 'pdf') {
+      mediaType = MediaType('application', 'pdf');
+    }
+
+    final fileLength = await file.length();
+    var sentBytes = 0;
+    final fileStream = file.openRead().transform(
+      StreamTransformer<List<int>, List<int>>.fromHandlers(
+        handleData: (chunk, sink) {
+          sentBytes += chunk.length;
+          if (fileLength > 0) {
+            onProgress?.call((sentBytes / fileLength).clamp(0, 1));
+          }
+          sink.add(chunk);
+        },
+      ),
+    );
+    final filename = file.uri.pathSegments.isEmpty
+        ? 'upload'
+        : Uri.decodeComponent(file.uri.pathSegments.last);
 
     request.files.add(
-      await http.MultipartFile.fromPath(
+      http.MultipartFile(
         fileField,
-        file.path,
+        http.ByteStream(fileStream),
+        fileLength,
+        filename: filename,
         contentType: mediaType,
       ),
     );
@@ -255,13 +282,18 @@ class ApiClient {
     try {
       final streamedResponse = await request.send().timeout(timeout);
       final response = await http.Response.fromStream(streamedResponse);
-      
+
       final decoded = _decodeBody(response.body);
       final payload = decoded is Map<String, dynamic>
           ? decoded
-          : <String, dynamic>{'success': false, 'message': 'Unexpected response'};
-          
-      final success = payload['success'] as bool? ??
+          : <String, dynamic>{
+              'success': false,
+              'message': 'Unexpected response',
+            };
+
+      final success =
+          payload['success'] as bool? ??
+          _statusIndicatesSuccess(payload['status']) ??
           (response.statusCode >= 200 && response.statusCode < 300);
 
       if (!success || response.statusCode < 200 || response.statusCode >= 300) {
@@ -274,6 +306,8 @@ class ApiClient {
         );
       }
 
+      onProgress?.call(1);
+
       return ApiEnvelope<Map<String, dynamic>>(
         success: true,
         message: payload['message'] as String? ?? '',
@@ -282,11 +316,40 @@ class ApiClient {
             ? ApiMeta.fromJson(payload['meta'] as Map<String, dynamic>)
             : null,
         raw: payload,
+        statusCode: response.statusCode,
       );
     } on TimeoutException {
       throw const ApiException(
         message: 'Upload timed out. Please check your connection.',
         statusCode: 0,
+      );
+    } on SocketException catch (error) {
+      throw ApiException(
+        message: 'Network error. Please check your connection and try again.',
+        statusCode: 0,
+        errorCode: 'NETWORK_ERROR',
+        rawData: error.toString(),
+      );
+    } on HandshakeException catch (error) {
+      throw ApiException(
+        message: 'Secure connection failed. Please try again.',
+        statusCode: 0,
+        errorCode: 'NETWORK_ERROR',
+        rawData: error.toString(),
+      );
+    } on IOException catch (error) {
+      throw ApiException(
+        message: 'Network error. Please check your connection and try again.',
+        statusCode: 0,
+        errorCode: 'NETWORK_ERROR',
+        rawData: error.toString(),
+      );
+    } on http.ClientException catch (error) {
+      throw ApiException(
+        message: 'Network error. Please check your connection and try again.',
+        statusCode: 0,
+        errorCode: 'NETWORK_ERROR',
+        rawData: error.toString(),
       );
     }
   }
@@ -337,9 +400,10 @@ class ApiClient {
       }
     }
 
-    PlatformHttpResponse raw;
+    RawHttpResponse raw;
 
     try {
+      _debugLogRequest(method, uri, body);
       raw = await httpClient
           .send(
             method,
@@ -364,6 +428,35 @@ class ApiClient {
       throw const ApiException(
         message: 'Request timed out. Please check your connection.',
         statusCode: 0,
+        errorCode: 'REQUEST_TIMEOUT',
+      );
+    } on SocketException catch (error) {
+      throw ApiException(
+        message: 'Network error. Please check your connection and try again.',
+        statusCode: 0,
+        errorCode: 'NETWORK_ERROR',
+        rawData: error.toString(),
+      );
+    } on HandshakeException catch (error) {
+      throw ApiException(
+        message: 'Secure connection failed. Please try again.',
+        statusCode: 0,
+        errorCode: 'NETWORK_ERROR',
+        rawData: error.toString(),
+      );
+    } on IOException catch (error) {
+      throw ApiException(
+        message: 'Network error. Please check your connection and try again.',
+        statusCode: 0,
+        errorCode: 'NETWORK_ERROR',
+        rawData: error.toString(),
+      );
+    } on http.ClientException catch (error) {
+      throw ApiException(
+        message: 'Network error. Please check your connection and try again.',
+        statusCode: 0,
+        errorCode: 'NETWORK_ERROR',
+        rawData: error.toString(),
       );
     }
 
@@ -406,32 +499,45 @@ class ApiClient {
     final payload = decoded is Map<String, dynamic>
         ? decoded
         : <String, dynamic>{'success': false, 'message': 'Unexpected response'};
-    final success = payload['success'] as bool? ??
+    _debugLogResponse(method, uri, raw.statusCode, payload);
+    final success =
+        payload['success'] as bool? ??
+        _statusIndicatesSuccess(payload['status']) ??
         (raw.statusCode >= 200 && raw.statusCode < 300);
 
     if (!success || raw.statusCode < 200 || raw.statusCode >= 300) {
       throw ApiException(
-        message: payload['message'] as String? ?? 'Request failed.',
+        message: _extractReadableMessage(payload, fallback: 'Request failed.'),
         statusCode: raw.statusCode,
-        errorCode: payload['error_code'] as String?,
+        errorCode: _asString(payload['error_code']),
         errors: asMap(payload['errors']),
         rawData: payload,
       );
     }
 
+    final parsedData = _parseEnvelopeData<T>(
+      parser,
+      payload['data'],
+      statusCode: raw.statusCode,
+      payload: payload,
+    );
+
     return ApiEnvelope<T>(
       success: true,
-      message: payload['message'] as String? ?? '',
-      data: parser(payload['data']),
+      message: _asString(payload['message']) ?? '',
+      data: parsedData,
       meta: payload['meta'] is Map<String, dynamic>
           ? ApiMeta.fromJson(payload['meta'] as Map<String, dynamic>)
           : null,
       raw: payload,
+      statusCode: raw.statusCode,
     );
   }
 
   Uri _buildUri(String path, Map<String, dynamic>? queryParameters) {
-    final uri = path.startsWith('http') ? Uri.parse(path) : Uri.parse('$baseUrl$path');
+    final uri = path.startsWith('http')
+        ? Uri.parse(path)
+        : Uri.parse('$baseUrl$path');
     if (queryParameters == null || queryParameters.isEmpty) {
       return uri;
     }
@@ -454,6 +560,118 @@ class ApiClient {
     } catch (_) {
       return <String, dynamic>{'success': false, 'message': body};
     }
+  }
+
+  T _parseEnvelopeData<T>(
+    ApiParser<T> parser,
+    Object? data, {
+    required int statusCode,
+    required Map<String, dynamic> payload,
+  }) {
+    try {
+      return parser(data);
+    } catch (error) {
+      assert(() {
+        debugPrint('API response parse failed status=$statusCode error=$error');
+        return true;
+      }());
+      throw ApiException(
+        message: 'We could not read the server response. Please try again.',
+        statusCode: statusCode,
+        errorCode: 'MALFORMED_RESPONSE',
+        rawData: payload,
+      );
+    }
+  }
+
+  String _extractReadableMessage(
+    Map<String, dynamic> payload, {
+    required String fallback,
+  }) {
+    final directMessage =
+        _asString(payload['message']) ??
+        _asString(payload['error']) ??
+        _asString(payload['detail']);
+    final validationMessage = _firstValidationMessage(asMap(payload['errors']));
+    if (directMessage != null && validationMessage != null) {
+      return '$directMessage: $validationMessage';
+    }
+    return directMessage ?? validationMessage ?? fallback;
+  }
+
+  String? _firstValidationMessage(Map<String, dynamic> errors) {
+    for (final entry in errors.entries) {
+      final value = entry.value;
+      if (value is String && value.trim().isNotEmpty) {
+        return '${entry.key}: ${value.trim()}';
+      }
+      if (value is List && value.isNotEmpty) {
+        final first = value.first;
+        if (first is String && first.trim().isNotEmpty) {
+          return '${entry.key}: ${first.trim()}';
+        }
+      }
+    }
+    return null;
+  }
+
+  String? _asString(Object? value) {
+    if (value is String && value.trim().isNotEmpty) {
+      return value.trim();
+    }
+    return null;
+  }
+
+  bool? _statusIndicatesSuccess(Object? value) {
+    final status = _asString(value)?.toLowerCase();
+    if (status == null) {
+      return null;
+    }
+    if (status == 'success' || status == 'ok') {
+      return true;
+    }
+    if (status == 'error' || status == 'failed' || status == 'failure') {
+      return false;
+    }
+    return null;
+  }
+
+  void _debugLogRequest(String method, Uri uri, Object? body) {
+    assert(() {
+      if (_isAuthUri(uri)) {
+        debugPrint(
+          'API request $method $uri bodyKeys=${_bodyKeys(body).join(',')}',
+        );
+      }
+      return true;
+    }());
+  }
+
+  void _debugLogResponse(
+    String method,
+    Uri uri,
+    int statusCode,
+    Map<String, dynamic> payload,
+  ) {
+    assert(() {
+      if (_isAuthUri(uri)) {
+        debugPrint(
+          'API response $method $uri status=$statusCode keys=${payload.keys.join(',')}',
+        );
+      }
+      return true;
+    }());
+  }
+
+  bool _isAuthUri(Uri uri) {
+    return uri.path.contains('/auth/') || uri.path.endsWith('/users/login');
+  }
+
+  List<String> _bodyKeys(Object? body) {
+    if (body is Map) {
+      return body.keys.map((key) => '$key').toList(growable: false);
+    }
+    return const <String>[];
   }
 
   Future<bool> _refreshTokens() {
@@ -504,8 +722,7 @@ class ApiClient {
 
       final data = asMap(payload['data']);
       final nextAccessToken = data['access_token'] as String?;
-      final nextRefreshToken =
-          data['refresh_token'] as String? ?? refreshToken;
+      final nextRefreshToken = data['refresh_token'] as String? ?? refreshToken;
       if (nextAccessToken == null || nextAccessToken.isEmpty) {
         await tokenStore.clearTokens();
         return false;

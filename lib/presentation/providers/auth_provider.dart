@@ -1,8 +1,20 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
+import '../../core/router/app_routes.dart';
 import '../../domain/entities/app_models.dart';
+import '../../features/delivery/providers/rider_delivery_provider.dart';
+import '../../features/restaurant_rider/providers/restaurant_rider_provider.dart';
+import 'availability_provider.dart';
 import 'core_providers.dart';
+import 'delivery_provider.dart';
+import 'earnings_provider.dart';
+import 'notifications_provider.dart';
+import 'orders_provider.dart';
+import 'profile_provider.dart';
+import 'rider_compliance_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Session state
@@ -14,15 +26,23 @@ class SessionState {
   const SessionState({
     required this.status,
     this.hasSeenOnboarding = false,
+    this.role,
   });
 
   final AuthStatus status;
   final bool hasSeenOnboarding;
+  final String? role;
 
-  SessionState copyWith({AuthStatus? status, bool? hasSeenOnboarding}) {
+  SessionState copyWith({
+    AuthStatus? status,
+    bool? hasSeenOnboarding,
+    String? role,
+    bool clearRole = false,
+  }) {
     return SessionState(
       status: status ?? this.status,
       hasSeenOnboarding: hasSeenOnboarding ?? this.hasSeenOnboarding,
+      role: clearRole ? null : role ?? this.role,
     );
   }
 }
@@ -42,12 +62,14 @@ class SessionController extends Notifier<SessionState> {
     return SessionState(
       status: hasToken ? AuthStatus.authenticated : AuthStatus.unauthenticated,
       hasSeenOnboarding: prefs.hasSeenOnboarding,
+      role: AppRoutes.normalizeRole(prefs.authRole),
     );
   }
 
   void markOnboardingComplete() {
     ref.read(appPreferencesProvider).setOnboardingSeen();
     state = state.copyWith(hasSeenOnboarding: true);
+    ref.read(appRouterRefreshProvider).refresh();
   }
 
   Future<AuthOtpChallenge> sendOtp({required String login}) async {
@@ -59,13 +81,16 @@ class SessionController extends Notifier<SessionState> {
     );
   }
 
-  Future<void> verifyOtp({
-    required String login,
-    required String otp,
-  }) async {
+  Future<void> verifyOtp({required String login, required String otp}) async {
     final api = ref.read(riderBackendApiProvider);
-    final envelope = await api.auth.verifyLoginOtp(login: login, otp: otp);
-    await _handleAuthTokens(envelope.data);
+    final preferences = ref.read(appPreferencesProvider);
+    final envelope = await api.auth.verifyLoginOtp(
+      login: login,
+      otp: otp,
+      deviceId: await preferences.getDeviceId(),
+      deviceName: _deviceName,
+    );
+    await _handleAuthResponse(envelope, source: 'otp_login');
   }
 
   Future<void> loginWithPassword({
@@ -73,11 +98,14 @@ class SessionController extends Notifier<SessionState> {
     required String password,
   }) async {
     final api = ref.read(riderBackendApiProvider);
+    final preferences = ref.read(appPreferencesProvider);
     final envelope = await api.auth.loginWithPassword(
       login: login,
       password: password,
+      deviceId: await preferences.getDeviceId(),
+      deviceName: _deviceName,
     );
-    await _handleAuthTokens(envelope.data);
+    await _handleAuthResponse(envelope, source: 'password_login');
   }
 
   Future<void> signup({
@@ -91,23 +119,27 @@ class SessionController extends Notifier<SessionState> {
     required String vehicleType,
   }) async {
     final api = ref.read(riderBackendApiProvider);
-    final envelope = await api.auth.signup(payload: {
-      'first_name': firstName,
-      'last_name': lastName,
-      'password': password,
-      'license_number': licenseNumber,
-      'phone': phone,
-      'city': city,
-      'email': email,
-      'vehicle_type': vehicleType,
-      'primary_role': 'delivery_driver',
-    });
-    await _handleAuthTokens(envelope.data);
+    final envelope = await api.auth.signup(
+      payload: {
+        'first_name': firstName,
+        'last_name': lastName,
+        'password': password,
+        'license_number': licenseNumber,
+        'phone': phone,
+        'city': city,
+        'email': email,
+        'vehicle_type': vehicleType,
+        'primary_role': 'delivery_driver',
+      },
+    );
+    await _handleAuthResponse(
+      envelope,
+      source: 'signup',
+      fallbackRole: 'delivery_driver',
+    );
   }
 
-  Future<AuthOtpChallenge> requestPasswordReset({
-    required String login,
-  }) async {
+  Future<AuthOtpChallenge> requestPasswordReset({required String login}) async {
     final api = ref.read(riderBackendApiProvider);
     final envelope = await api.auth.requestPasswordReset(login: login);
     return AuthOtpChallenge(
@@ -137,34 +169,196 @@ class SessionController extends Notifier<SessionState> {
       // Best-effort logout — clear tokens even if server call fails.
     }
     await ref.read(appPreferencesProvider).clearTokens();
-    state = state.copyWith(status: AuthStatus.unauthenticated);
+    _clearUserScopedState(disconnectRealtime: true);
+    state = state.copyWith(status: AuthStatus.unauthenticated, clearRole: true);
+    ref.read(appRouterRefreshProvider).refresh();
   }
 
-  Future<void> _handleAuthTokens(Map<String, dynamic> data) async {
-    // Validate role for restaurant-owned rider
-    final user = data['user'];
-    if (user != null) {
-      final role = user['primary_role'] as String? ?? 
-                   user['user_type'] as String? ?? 
-                   data['role'] as String? ?? 
-                   data['user_type'] as String?;
-                   
-      if (role != 'rider' && role != 'delivery_driver') {
-        throw const ApiException(
-          message: 'This app is only for riders.',
-          errorCode: 'UNAUTHORIZED_ROLE',
-        );
-      }
+  Future<void> _handleAuthResponse(
+    ApiEnvelope<Map<String, dynamic>> envelope, {
+    required String source,
+    String? fallbackRole,
+  }) async {
+    _clearUserScopedState(disconnectRealtime: true);
+
+    final data = _authPayload(envelope);
+    final role =
+        AppRoutes.extractRole(data) ?? AppRoutes.normalizeRole(fallbackRole);
+    final accessToken = _extractAccessToken(data, envelope.raw);
+    final refreshToken = _extractRefreshToken(data, envelope.raw);
+
+    _debugAuth(
+      'Auth response source=$source status=${envelope.statusCode ?? 'unknown'} '
+      'dataKeys=${data.keys.join(',')} rawKeys=${envelope.raw.keys.join(',')} '
+      'tokenFound=${accessToken == null ? 'no' : 'yes'} role=${role ?? 'missing'}',
+    );
+
+    if (role == null || !AppRoutes.isSupportedRiderRole(role)) {
+      throw const ApiException(
+        message: 'This app is only for riders.',
+        errorCode: 'UNAUTHORIZED_ROLE',
+      );
     }
 
-    final accessToken = data['access_token'] as String?;
-    final refreshToken = data['refresh_token'] as String?;
-    if (accessToken != null && accessToken.isNotEmpty) {
-      await ref.read(appPreferencesProvider).saveTokens(
-        accessToken: accessToken,
-        refreshToken: refreshToken ?? '',
+    if (accessToken == null) {
+      throw ApiException(
+        message: 'Authentication token is missing from the login response.',
+        errorCode: 'TOKEN_MISSING',
+        statusCode: envelope.statusCode,
+        rawData: envelope.raw,
       );
-      state = state.copyWith(status: AuthStatus.authenticated);
     }
+
+    final preferences = ref.read(appPreferencesProvider);
+    await preferences.saveTokens(
+      accessToken: accessToken,
+      refreshToken: refreshToken ?? '',
+    );
+    await preferences.setAuthRole(role);
+
+    final storedAccessToken = preferences.accessToken;
+    final storedRefreshToken = preferences.refreshToken;
+    final storedRole = AppRoutes.normalizeRole(preferences.authRole);
+    final refreshSaved =
+        refreshToken == null || refreshToken == storedRefreshToken;
+    if (storedAccessToken != accessToken ||
+        !refreshSaved ||
+        storedRole != role) {
+      await preferences.clearTokens();
+      throw ApiException(
+        message: 'Could not save your login session. Please try again.',
+        errorCode: 'SESSION_SAVE_FAILED',
+        statusCode: envelope.statusCode,
+      );
+    }
+
+    state = state.copyWith(status: AuthStatus.authenticated, role: role);
+    _clearUserScopedState(disconnectRealtime: false);
+    ref.read(appRouterRefreshProvider).refresh();
+    _debugAuth('Auth session saved source=$source role=$role');
+  }
+
+  void _clearUserScopedState({required bool disconnectRealtime}) {
+    if (disconnectRealtime) {
+      ref.read(riderDeliveryControllerProvider.notifier).clearSession();
+    }
+
+    ref.invalidate(riderDeliveryControllerProvider);
+    ref.invalidate(profileControllerProvider);
+    ref.invalidate(riderComplianceControllerProvider);
+    ref.invalidate(ordersControllerProvider);
+    ref.invalidate(deliveryControllerProvider);
+    ref.invalidate(earningsControllerProvider);
+    ref.invalidate(notificationsControllerProvider);
+    ref.invalidate(availabilityControllerProvider);
+    ref.invalidate(activeOrdersProvider);
+    ref.invalidate(deliveredOrdersProvider);
+    ref.invalidate(linkedRestaurantsProvider);
+    ref.invalidate(riderSocketServiceProvider);
+    ref.invalidate(riderLocationServiceProvider);
+  }
+
+  Map<String, dynamic> _authPayload(
+    ApiEnvelope<Map<String, dynamic>> envelope,
+  ) {
+    if (envelope.data.isNotEmpty) {
+      return envelope.data;
+    }
+    final rawData = _asMap(envelope.raw['data']);
+    if (rawData.isNotEmpty) {
+      return rawData;
+    }
+    return envelope.raw;
+  }
+
+  String? _extractAccessToken(
+    Map<String, dynamic> data,
+    Map<String, dynamic> raw,
+  ) {
+    final tokens = _asMap(data['tokens']);
+    final rawData = _asMap(raw['data']);
+    final rawTokens = _asMap(rawData['tokens']);
+    return _firstNonEmptyString([
+      _stringOrNull(tokens['access_token']),
+      _stringOrNull(tokens['accessToken']),
+      _stringOrNull(tokens['authToken']),
+      _stringOrNull(data['access_token']),
+      _stringOrNull(data['accessToken']),
+      _stringOrNull(data['authToken']),
+      _stringOrNull(data['token']),
+      _stringOrNull(data['jwt']),
+      _stringOrNull(rawTokens['access_token']),
+      _stringOrNull(rawTokens['accessToken']),
+      _stringOrNull(rawTokens['authToken']),
+      _stringOrNull(raw['access_token']),
+      _stringOrNull(raw['accessToken']),
+      _stringOrNull(raw['authToken']),
+    ]);
+  }
+
+  String? _extractRefreshToken(
+    Map<String, dynamic> data,
+    Map<String, dynamic> raw,
+  ) {
+    final tokens = _asMap(data['tokens']);
+    final rawData = _asMap(raw['data']);
+    final rawTokens = _asMap(rawData['tokens']);
+    return _firstNonEmptyString([
+      _stringOrNull(tokens['refresh_token']),
+      _stringOrNull(tokens['refreshToken']),
+      _stringOrNull(data['refresh_token']),
+      _stringOrNull(data['refreshToken']),
+      _stringOrNull(rawTokens['refresh_token']),
+      _stringOrNull(rawTokens['refreshToken']),
+      _stringOrNull(raw['refresh_token']),
+      _stringOrNull(raw['refreshToken']),
+    ]);
+  }
+
+  String? _firstNonEmptyString(Iterable<String?> values) {
+    for (final value in values) {
+      if (value != null && value.trim().isNotEmpty) {
+        return value.trim();
+      }
+    }
+    return null;
+  }
+
+  String? _stringOrNull(Object? value) {
+    if (value is String && value.trim().isNotEmpty) {
+      return value.trim();
+    }
+    return null;
+  }
+
+  Map<String, dynamic> _asMap(Object? value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map((key, value) => MapEntry('$key', value));
+    }
+    return const <String, dynamic>{};
+  }
+
+  String get _deviceName {
+    if (kIsWeb) {
+      return 'Flutter Web Rider';
+    }
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android => 'Flutter Android Rider',
+      TargetPlatform.iOS => 'Flutter iPhone Rider',
+      TargetPlatform.macOS => 'Flutter macOS Rider',
+      TargetPlatform.windows => 'Flutter Windows Rider',
+      TargetPlatform.linux => 'Flutter Linux Rider',
+      TargetPlatform.fuchsia => 'Flutter Fuchsia Rider',
+    };
+  }
+
+  void _debugAuth(String message) {
+    assert(() {
+      debugPrint(message);
+      return true;
+    }());
   }
 }

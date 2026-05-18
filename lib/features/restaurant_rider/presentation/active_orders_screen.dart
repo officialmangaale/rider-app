@@ -2,11 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../domain/entities/app_models.dart';
+import '../../../presentation/providers/auth_provider.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
+import '../../delivery/providers/rider_delivery_provider.dart';
+import '../../delivery/widgets/rider_location_status_card.dart';
 import '../providers/restaurant_rider_provider.dart';
+import '../widgets/rider_tab_state.dart';
 
 class ActiveOrdersScreen extends ConsumerWidget {
   const ActiveOrdersScreen({super.key});
@@ -14,62 +19,73 @@ class ActiveOrdersScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activeOrdersState = ref.watch(activeOrdersProvider);
+    final riderDeliveryState = ref.watch(riderDeliveryControllerProvider);
 
     return PremiumScaffold(
       title: 'Active Orders',
       subtitle: 'Orders assigned to you',
-      onRefresh: () => ref.refresh(activeOrdersProvider.future),
+      onRefresh: () async {
+        ref.invalidate(activeOrdersProvider);
+        await ref.read(activeOrdersProvider.future).catchError((_) {
+          return <DeliveryOrder>[];
+        });
+      },
       child: activeOrdersState.when(
         data: (orders) {
+          final showLocationStatus =
+              riderDeliveryState.shouldShowLocationStatus;
           if (orders.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.motorcycle_rounded, size: 64, color: AppColors.smoke),
+            return ListView(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+              children: [
+                if (showLocationStatus) ...[
+                  const RiderLocationStatusCard(),
                   const SizedBox(height: AppSpacing.md),
-                  Text(
-                    'No assigned orders yet',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: AppColors.smoke,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    'New orders will appear here when assigned.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
                 ],
-              ),
+                const RiderEmptyState(
+                  icon: Icons.motorcycle_rounded,
+                  title: 'No active orders right now',
+                  message:
+                      'You will see new orders here as soon as they are assigned.',
+                  accent: AppColors.sky,
+                ),
+              ],
             );
           }
-          return ListView.separated(
+          return ListView(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-            itemCount: orders.length,
-            separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
-            itemBuilder: (context, index) {
-              final order = orders[index];
-              return _ActiveOrderCard(order: order);
-            },
+            children: [
+              if (showLocationStatus) ...[
+                const RiderLocationStatusCard(),
+                const SizedBox(height: AppSpacing.md),
+              ],
+              for (final order in orders) ...[
+                _ActiveOrderCard(order: order),
+                const SizedBox(height: AppSpacing.md),
+              ],
+            ],
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: AppColors.danger),
-              const SizedBox(height: AppSpacing.md),
-              const Text('Failed to load active orders'),
-              const SizedBox(height: AppSpacing.sm),
-              TextButton.icon(
-                onPressed: () => ref.invalidate(activeOrdersProvider),
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
+        error: (err, stack) {
+          final unauthorized = isUnauthorizedRiderError(err);
+          return RiderErrorState(
+            icon: unauthorized
+                ? Icons.lock_outline_rounded
+                : Icons.cloud_off_rounded,
+            title: 'Could not load active orders',
+            message: riderErrorMessage(err),
+            actionLabel: unauthorized ? 'Sign in' : 'Retry',
+            onRetry: () async {
+              if (unauthorized) {
+                await ref.read(sessionControllerProvider.notifier).logout();
+                if (context.mounted) context.go(AppRoutes.login);
+                return;
+              }
+              ref.invalidate(activeOrdersProvider);
+            },
+          );
+        },
       ),
     );
   }
@@ -119,7 +135,8 @@ class _ActiveOrderCard extends StatelessWidget {
 
     return GlassCard(
       accent: statusColor,
-      onTap: () => context.push('/restaurant-order/${order.id}', extra: order),
+      onTap: () =>
+          context.push(AppRoutes.restaurantOrder(order.id), extra: order),
       padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -130,14 +147,11 @@ class _ActiveOrderCard extends StatelessWidget {
             children: [
               Text(
                 '#${order.orderCode}',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
-              StatusPill(
-                label: _statusLabel(order.status),
-                color: statusColor,
-              ),
+              StatusPill(label: _statusLabel(order.status), color: statusColor),
             ],
           ),
           const SizedBox(height: AppSpacing.md),
@@ -153,7 +167,11 @@ class _ActiveOrderCard extends StatelessWidget {
           // Customer
           Row(
             children: [
-              Icon(Icons.person_outline_rounded, size: 16, color: AppColors.smoke),
+              Icon(
+                Icons.person_outline_rounded,
+                size: 16,
+                color: AppColors.smoke,
+              ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(child: Text(order.customerName)),
             ],
@@ -163,7 +181,11 @@ class _ActiveOrderCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.location_on_outlined, size: 16, color: AppColors.smoke),
+              Icon(
+                Icons.location_on_outlined,
+                size: 16,
+                color: AppColors.smoke,
+              ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
@@ -189,9 +211,9 @@ class _ActiveOrderCard extends StatelessWidget {
               const Spacer(),
               Text(
                 '${order.itemsCount} items · ${order.paymentMethod}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.smoke,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: AppColors.smoke),
               ),
             ],
           ),
@@ -200,7 +222,10 @@ class _ActiveOrderCard extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: () => context.push('/restaurant-order/${order.id}', extra: order),
+              onPressed: () => context.push(
+                AppRoutes.restaurantOrder(order.id),
+                extra: order,
+              ),
               icon: const Icon(Icons.visibility_rounded, size: 18),
               label: const Text('View Details'),
             ),

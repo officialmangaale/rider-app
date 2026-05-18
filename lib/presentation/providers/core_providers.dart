@@ -7,6 +7,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/platform_http_client.dart';
 import '../../core/router/app_router.dart';
+import '../../core/router/app_routes.dart';
 import '../../core/services/app_preferences.dart';
 import '../../core/services/map_launcher_service.dart';
 import '../../data/services/rider_backend_api.dart';
@@ -67,6 +68,23 @@ class ThemeModeController extends Notifier<ThemeMode> {
 // Router
 // ---------------------------------------------------------------------------
 
+final appRouterRefreshProvider = Provider<AppRouterRefreshListenable>((ref) {
+  final routerRefreshListenable = AppRouterRefreshListenable();
+  ref.onDispose(routerRefreshListenable.dispose);
+  return routerRefreshListenable;
+});
+
 final appRouterProvider = Provider<GoRouter>((ref) {
-  return buildAppRouter(ref);
+  final routerRefreshListenable = ref.watch(appRouterRefreshProvider);
+  return buildAppRouter(
+    refreshListenable: routerRefreshListenable,
+    readAuthSnapshot: () {
+      final preferences = ref.read(appPreferencesProvider);
+      return RouteAuthSnapshot(
+        isAuthenticated: preferences.isAuthenticated,
+        hasSeenOnboarding: preferences.hasSeenOnboarding,
+        role: AppRoutes.normalizeRole(preferences.authRole),
+      );
+    },
+  );
 });

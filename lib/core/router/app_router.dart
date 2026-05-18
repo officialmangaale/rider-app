@@ -1,5 +1,5 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/auth_screen.dart';
@@ -21,12 +21,52 @@ import '../../features/splash/presentation/splash_screen.dart';
 import '../../features/support/presentation/support_screen.dart';
 import '../../features/wallet/presentation/wallet_screen.dart';
 import '../constants/app_constants.dart';
+import 'app_routes.dart';
 import '../../features/restaurant_rider/presentation/active_orders_screen.dart';
 import '../../features/restaurant_rider/presentation/delivered_orders_screen.dart';
 import '../../features/restaurant_rider/presentation/restaurant_profile_screen.dart';
 import '../../features/restaurant_rider/presentation/order_detail_screen.dart';
 import '../../domain/entities/app_models.dart';
-GoRouter buildAppRouter(Ref ref) {
+
+class AppRouterRefreshListenable extends ChangeNotifier {
+  void refresh() => notifyListeners();
+}
+
+GoRouter buildAppRouter({
+  required RouteAuthSnapshot Function() readAuthSnapshot,
+  required Listenable refreshListenable,
+}) {
+  AppRoutes.debugLogRouteTable();
+
+  String? redirect(GoRouterState state) {
+    final path = state.uri.path;
+    final auth = readAuthSnapshot();
+
+    if (path == AppRoutes.splash) {
+      return null;
+    }
+
+    if (AppRoutes.isEntryAlias(path)) {
+      final target = AppRoutes.resolveEntryRoute(auth);
+      return target == path ? null : target;
+    }
+
+    if (!auth.hasSeenOnboarding && path != AppRoutes.onboarding) {
+      return AppRoutes.onboarding;
+    }
+
+    if (auth.isAuthenticated && AppRoutes.isAuthPath(path)) {
+      final target = AppRoutes.resolvePostAuthRoute(role: auth.role);
+      return target == path ? null : target;
+    }
+
+    if (!auth.isAuthenticated && AppRoutes.isProtectedPath(path)) {
+      return AppRoutes.login;
+    }
+
+    return null;
+  }
+
   CustomTransitionPage<void> buildPage(Widget child, GoRouterState state) {
     return CustomTransitionPage<void>(
       key: state.pageKey,
@@ -51,25 +91,48 @@ GoRouter buildAppRouter(Ref ref) {
   }
 
   return GoRouter(
-    initialLocation: '/splash',
+    initialLocation: AppRoutes.splash,
+    refreshListenable: refreshListenable,
+    redirect: (context, state) => redirect(state),
+    errorBuilder: (context, state) {
+      assert(() {
+        debugPrint('GoRouter error for ${state.uri}: ${state.error}');
+        return true;
+      }());
+      return _RouteErrorScreen(
+        debugMessage: kDebugMode ? state.error.toString() : null,
+        resolveHomeRoute: () => AppRoutes.resolveEntryRoute(readAuthSnapshot()),
+      );
+    },
     routes: [
       GoRoute(
-        path: '/splash',
+        path: AppRoutes.root,
+        redirect: (context, state) =>
+            AppRoutes.resolveEntryRoute(readAuthSnapshot()),
+      ),
+      GoRoute(
+        path: AppRoutes.splash,
         pageBuilder: (context, state) => buildPage(const SplashScreen(), state),
       ),
       GoRoute(
-        path: '/onboarding',
+        path: AppRoutes.onboarding,
         pageBuilder: (context, state) =>
             buildPage(const OnboardingScreen(), state),
       ),
       GoRoute(
-        path: '/login',
+        path: AppRoutes.login,
         pageBuilder: (context, state) => buildPage(const AuthScreen(), state),
       ),
       GoRoute(
-        path: '/signup',
+        path: AppRoutes.signup,
         pageBuilder: (context, state) => buildPage(const SignupScreen(), state),
       ),
+      if (AppConstants.restaurantOwnedRiderMode)
+        GoRoute(
+          path: AppRoutes.home,
+          redirect: (context, state) =>
+              AppRoutes.resolveEntryRoute(readAuthSnapshot()),
+        ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
           return AppShellScreen(navigationShell: navigationShell);
@@ -79,7 +142,7 @@ GoRouter buildAppRouter(Ref ref) {
                 StatefulShellBranch(
                   routes: [
                     GoRoute(
-                      path: '/active-orders',
+                      path: AppRoutes.activeOrders,
                       pageBuilder: (context, state) =>
                           const NoTransitionPage(child: ActiveOrdersScreen()),
                     ),
@@ -88,18 +151,20 @@ GoRouter buildAppRouter(Ref ref) {
                 StatefulShellBranch(
                   routes: [
                     GoRoute(
-                      path: '/delivered-orders',
-                      pageBuilder: (context, state) =>
-                          const NoTransitionPage(child: DeliveredOrdersScreen()),
+                      path: AppRoutes.deliveredOrders,
+                      pageBuilder: (context, state) => const NoTransitionPage(
+                        child: DeliveredOrdersScreen(),
+                      ),
                     ),
                   ],
                 ),
                 StatefulShellBranch(
                   routes: [
                     GoRoute(
-                      path: '/profile',
-                      pageBuilder: (context, state) =>
-                          const NoTransitionPage(child: RestaurantProfileScreen()),
+                      path: AppRoutes.profile,
+                      pageBuilder: (context, state) => const NoTransitionPage(
+                        child: RestaurantProfileScreen(),
+                      ),
                     ),
                   ],
                 ),
@@ -108,7 +173,7 @@ GoRouter buildAppRouter(Ref ref) {
                 StatefulShellBranch(
                   routes: [
                     GoRoute(
-                      path: '/home',
+                      path: AppRoutes.home,
                       pageBuilder: (context, state) =>
                           const NoTransitionPage(child: DashboardScreen()),
                     ),
@@ -117,7 +182,7 @@ GoRouter buildAppRouter(Ref ref) {
                 StatefulShellBranch(
                   routes: [
                     GoRoute(
-                      path: '/requests',
+                      path: AppRoutes.requests,
                       pageBuilder: (context, state) =>
                           const NoTransitionPage(child: OrdersScreen()),
                     ),
@@ -126,7 +191,7 @@ GoRouter buildAppRouter(Ref ref) {
                 StatefulShellBranch(
                   routes: [
                     GoRoute(
-                      path: '/delivery',
+                      path: AppRoutes.delivery,
                       pageBuilder: (context, state) =>
                           const NoTransitionPage(child: ActiveDeliveryScreen()),
                     ),
@@ -135,7 +200,7 @@ GoRouter buildAppRouter(Ref ref) {
                 StatefulShellBranch(
                   routes: [
                     GoRoute(
-                      path: '/earnings',
+                      path: AppRoutes.earnings,
                       pageBuilder: (context, state) =>
                           const NoTransitionPage(child: EarningsScreen()),
                     ),
@@ -144,7 +209,7 @@ GoRouter buildAppRouter(Ref ref) {
                 StatefulShellBranch(
                   routes: [
                     GoRoute(
-                      path: '/profile',
+                      path: AppRoutes.profile,
                       pageBuilder: (context, state) =>
                           const NoTransitionPage(child: ProfileScreen()),
                     ),
@@ -153,57 +218,60 @@ GoRouter buildAppRouter(Ref ref) {
               ],
       ),
       GoRoute(
-        path: '/navigation',
+        path: AppRoutes.navigation,
         pageBuilder: (context, state) =>
             buildPage(const NavigationScreen(), state),
       ),
       GoRoute(
-        path: '/history',
+        path: AppRoutes.history,
         pageBuilder: (context, state) =>
             buildPage(const HistoryScreen(), state),
       ),
       GoRoute(
-        path: '/history/:id',
+        path: '${AppRoutes.history}/:id',
         pageBuilder: (context, state) => buildPage(
           HistoryScreen(detailId: state.pathParameters['id']!),
           state,
         ),
       ),
       GoRoute(
-        path: '/notifications',
+        path: AppRoutes.notifications,
         pageBuilder: (context, state) =>
             buildPage(const NotificationsScreen(), state),
       ),
       GoRoute(
-        path: '/support',
+        path: AppRoutes.support,
         pageBuilder: (context, state) =>
             buildPage(const SupportScreen(), state),
       ),
       GoRoute(
-        path: '/availability',
+        path: AppRoutes.availability,
         pageBuilder: (context, state) =>
             buildPage(const AvailabilityScreen(), state),
       ),
       GoRoute(
-        path: '/wallet',
+        path: AppRoutes.wallet,
         pageBuilder: (context, state) => buildPage(const WalletScreen(), state),
       ),
       GoRoute(
-        path: '/ratings',
+        path: AppRoutes.ratings,
         pageBuilder: (context, state) =>
             buildPage(const RatingsScreen(), state),
       ),
       GoRoute(
-        path: '/settings',
+        path: AppRoutes.settings,
         pageBuilder: (context, state) =>
             buildPage(const SettingsScreen(), state),
       ),
       GoRoute(
-        path: '/restaurant-order/:id',
+        path: '${AppRoutes.restaurantOrderBase}/:id',
         pageBuilder: (context, state) {
           final order = state.extra as DeliveryOrder;
           return buildPage(
-            OrderDetailScreen(orderId: state.pathParameters['id']!, order: order),
+            OrderDetailScreen(
+              orderId: state.pathParameters['id']!,
+              order: order,
+            ),
             state,
           );
         },
@@ -212,5 +280,61 @@ GoRouter buildAppRouter(Ref ref) {
   );
 }
 
+class _RouteErrorScreen extends StatelessWidget {
+  const _RouteErrorScreen({required this.resolveHomeRoute, this.debugMessage});
 
+  final String Function() resolveHomeRoute;
+  final String? debugMessage;
 
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Icon(
+                    Icons.route_outlined,
+                    size: 56,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Page not available',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'This link is not available in the current rider app.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  if (debugMessage != null) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      debugMessage!,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  FilledButton(
+                    onPressed: () => context.go(resolveHomeRoute()),
+                    child: const Text('Go to app'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

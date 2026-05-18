@@ -47,8 +47,13 @@ class DeliveryController extends AsyncNotifier<DeliveryState> {
       if (data.isNotEmpty) {
         activeOrder = DeliveryOrder.fromJson(data);
       }
-    } catch (_) {
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) {
+        rethrow;
+      }
       // No active order — that's fine.
+    } catch (_) {
+      // Ignore other errors
     }
 
     return DeliveryState(activeOrder: activeOrder);

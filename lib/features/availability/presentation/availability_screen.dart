@@ -10,6 +10,8 @@ import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/feedback_widgets.dart';
 import '../../../shared/widgets/premium_controls.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
+import '../../delivery/providers/rider_delivery_provider.dart';
+import '../../delivery/widgets/rider_location_status_card.dart';
 
 class AvailabilityScreen extends ConsumerWidget {
   const AvailabilityScreen({super.key});
@@ -17,6 +19,17 @@ class AvailabilityScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final availabilityAsync = ref.watch(availabilityControllerProvider);
+    final riderDeliveryState = ref.watch(riderDeliveryControllerProvider);
+    final complianceAsync = ref.watch(riderComplianceControllerProvider);
+    final complianceState = complianceAsync.valueOrNull;
+    final locationReady =
+        riderDeliveryState.locationPermissionGranted ||
+        riderDeliveryState.lastLocationUpdate != null ||
+        (complianceState?.profile.hasLocationSnapshot ?? false);
+    final missingSetup =
+        complianceState?.profile.missingItems(locationReady: locationReady) ??
+        const <String>[];
+    final setupLoading = complianceAsync.isLoading && complianceState == null;
 
     return PremiumScaffold(
       title: 'Availability',
@@ -27,21 +40,35 @@ class AvailabilityScreen extends ConsumerWidget {
         loading: () => const Padding(
           padding: EdgeInsets.all(AppSpacing.xl),
           child: Column(
-            children: [ShimmerCard(), SizedBox(height: AppSpacing.md), ShimmerCard()],
+            children: [
+              ShimmerCard(),
+              SizedBox(height: AppSpacing.md),
+              ShimmerCard(),
+            ],
           ),
         ),
         error: (error, _) => Center(
           child: EmptyStateCard(
             icon: Icons.warning_rounded,
             title: 'Could not load availability',
-            subtitle: error is ApiException ? error.message : 'Something went wrong.',
+            subtitle: error is ApiException
+                ? error.message
+                : 'Something went wrong.',
           ),
         ),
         data: (shift) => ListView(
           padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
+            AppSpacing.xl,
+            0,
+            AppSpacing.xl,
+            AppSpacing.xl,
           ),
           children: [
+            if (shift.status != AvailabilityStatus.online &&
+                (setupLoading || missingSetup.isNotEmpty)) ...[
+              _SetupBlockerCard(loading: setupLoading, missing: missingSetup),
+              const SizedBox(height: AppSpacing.lg),
+            ],
             // ── Status toggle ──────────────────────────────
             GlassCard(
               accent: shift.status == AvailabilityStatus.online
@@ -58,31 +85,42 @@ class AvailabilityScreen extends ConsumerWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          switch (shift.status) {
-                            AvailabilityStatus.online => 'You are online',
-                            AvailabilityStatus.onBreak => 'On a break',
-                            AvailabilityStatus.busy => 'Busy (delivering)',
-                            AvailabilityStatus.offline => 'You are offline',
-                          },
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
+                        child: Text(switch (shift.status) {
+                          AvailabilityStatus.online => 'You are online',
+                          AvailabilityStatus.onBreak => 'On a break',
+                          AvailabilityStatus.busy => 'Busy (delivering)',
+                          AvailabilityStatus.offline => 'You are offline',
+                        }, style: Theme.of(context).textTheme.titleMedium),
                       ),
                       PremiumStatusToggle(
                         label: 'Shift status',
                         value: shift.status == AvailabilityStatus.online,
                         activeLabel: 'Online',
                         inactiveLabel: 'Offline',
-                        onChanged: (active) async {
-                          try {
-                            await ref.read(availabilityControllerProvider.notifier).setStatus(
-                              active ? AvailabilityStatus.online : AvailabilityStatus.offline,
-                            );
-                          } on ApiException catch (e) {
-                            if (!context.mounted) return;
-                            showLuxurySnackBar(context, e.message);
-                          }
-                        },
+                        onChanged:
+                            shift.status != AvailabilityStatus.online &&
+                                (setupLoading || missingSetup.isNotEmpty)
+                            ? null
+                            : (active) async {
+                                try {
+                                  await ref
+                                      .read(
+                                        availabilityControllerProvider.notifier,
+                                      )
+                                      .setStatus(
+                                        active
+                                            ? AvailabilityStatus.online
+                                            : AvailabilityStatus.offline,
+                                      );
+                                } on ApiException catch (e) {
+                                  if (!context.mounted) return;
+                                  showLuxurySnackBar(
+                                    context,
+                                    e.message,
+                                    isError: true,
+                                  );
+                                }
+                              },
                       ),
                     ],
                   ),
@@ -93,9 +131,9 @@ class AvailabilityScreen extends ConsumerWidget {
                       icon: Icons.coffee_rounded,
                       onPressed: () async {
                         try {
-                          await ref.read(availabilityControllerProvider.notifier).setStatus(
-                            AvailabilityStatus.onBreak,
-                          );
+                          await ref
+                              .read(availabilityControllerProvider.notifier)
+                              .setStatus(AvailabilityStatus.onBreak);
                         } on ApiException catch (e) {
                           if (!context.mounted) return;
                           showLuxurySnackBar(context, e.message);
@@ -111,9 +149,9 @@ class AvailabilityScreen extends ConsumerWidget {
                       expanded: true,
                       onPressed: () async {
                         try {
-                          await ref.read(availabilityControllerProvider.notifier).setStatus(
-                            AvailabilityStatus.online,
-                          );
+                          await ref
+                              .read(availabilityControllerProvider.notifier)
+                              .setStatus(AvailabilityStatus.online);
                         } on ApiException catch (e) {
                           if (!context.mounted) return;
                           showLuxurySnackBar(context, e.message);
@@ -124,6 +162,10 @@ class AvailabilityScreen extends ConsumerWidget {
                 ],
               ),
             ),
+            if (riderDeliveryState.shouldShowLocationStatus) ...[
+              const SizedBox(height: AppSpacing.lg),
+              const RiderLocationStatusCard(),
+            ],
             const SizedBox(height: AppSpacing.xl),
 
             // ── Shift summary ──────────────────────────────
@@ -153,15 +195,53 @@ class AvailabilityScreen extends ConsumerWidget {
                     value: '${shift.breakMinutes} min',
                   ),
                   if (shift.preferredWindow.isNotEmpty)
-                    _ShiftRow(
-                      label: 'Window',
-                      value: shift.preferredWindow,
-                    ),
+                    _ShiftRow(label: 'Window', value: shift.preferredWindow),
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SetupBlockerCard extends StatelessWidget {
+  const _SetupBlockerCard({required this.loading, required this.missing});
+
+  final bool loading;
+  final List<String> missing;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      accent: AppColors.gold,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.lock_outline_rounded, color: AppColors.gold),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  loading ? 'Checking rider setup' : 'Setup required',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  loading
+                      ? 'Please wait while we confirm your compliance status.'
+                      : 'Complete ${missing.join(', ')} before going online.',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
