@@ -252,10 +252,12 @@ class RiderProfile {
         _firstPresent([
           json['vehicleNumber'],
           json['vehicle_number'],
+          json['vehicle_registration_number'],
           vehicle['vehicle_number'],
           vehicle['registration_number'],
           vehicle['registration_no'],
           source['vehicle_number'],
+          source['vehicle_registration_number'],
         ]),
         fallback: 'Not added',
       ),

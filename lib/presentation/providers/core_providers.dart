@@ -80,10 +80,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     refreshListenable: routerRefreshListenable,
     readAuthSnapshot: () {
       final preferences = ref.read(appPreferencesProvider);
+      final rawRole = preferences.rawAuthRole;
+      final normalizedRole = AppRoutes.normalizeRole(rawRole);
+      assert(() {
+        debugPrint(
+          'Router auth snapshot rawRole=${rawRole ?? 'missing'} '
+          'normalizedRole=${normalizedRole ?? 'missing'}',
+        );
+        return true;
+      }());
       return RouteAuthSnapshot(
         isAuthenticated: preferences.isAuthenticated,
         hasSeenOnboarding: preferences.hasSeenOnboarding,
-        role: AppRoutes.normalizeRole(preferences.authRole),
+        role: normalizedRole,
       );
     },
   );

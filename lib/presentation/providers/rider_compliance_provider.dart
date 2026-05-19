@@ -125,11 +125,21 @@ class RiderComplianceController extends AsyncNotifier<RiderComplianceState> {
   Future<RiderComplianceState> _fetch() async {
     final api = ref.read(riderBackendApiProvider);
     try {
+      debugLog('GET /api/v1/rider/profile state=fetching riderType=unknown');
       final envelope = await api.rider.me();
-      return RiderComplianceState(
-        profile: RiderComplianceProfile.fromJson(envelope.data),
+      final profile = RiderComplianceProfile.fromJson(envelope.data);
+      debugLog(
+        'GET /api/v1/rider/profile status=${envelope.statusCode ?? 'unknown'} '
+        'responseKeys=${envelope.data.keys.join(',')} '
+        'parsedRiderType=${profile.riderTypeLabel} '
+        'mode=${profile.mode.isEmpty ? 'platform' : profile.mode}',
       );
+      return RiderComplianceState(profile: profile);
     } on ApiException catch (error) {
+      debugLog(
+        'GET /api/v1/rider/profile status=${error.statusCode ?? 'unknown'} '
+        'error=${error.errorCode ?? error.message}',
+      );
       if (error.statusCode == 404) {
         return const RiderComplianceState(profile: RiderComplianceProfile());
       }
@@ -215,26 +225,29 @@ class RiderComplianceController extends AsyncNotifier<RiderComplianceState> {
 
     _setSectionSaving(RiderSetupSection.kyc, true);
     try {
+      final payload = KycPayload(
+        firstName: draft.firstName.trim(),
+        lastName: draft.lastName.trim(),
+        phone: draft.phone.trim(),
+        email: draft.email.trim(),
+        licenseNumber: draft.licenseNumber.trim(),
+        drivingLicenseFrontUrl: draft.documents.drivingLicenseFrontUrl.trim(),
+        drivingLicenseBackUrl: draft.documents.drivingLicenseBackUrl.trim(),
+        nationalIdType: draft.nationalIdType.trim(),
+        nationalIdNumber: draft.nationalIdNumber.trim(),
+        nationalIdFrontUrl: draft.documents.nationalIdFrontUrl.trim(),
+        nationalIdBackUrl: draft.documents.nationalIdBackUrl.trim(),
+      );
+      _debugSaveStarted(
+        section: RiderSetupSection.kyc,
+        endpoint: '/api/v1/rider/kyc',
+        payloadKeys: payload.toJson().keys,
+      );
       final envelope = await ref
           .read(riderBackendApiProvider)
           .rider
-          .updateKYC(
-            payload: KycPayload(
-              firstName: draft.firstName.trim(),
-              lastName: draft.lastName.trim(),
-              phone: draft.phone.trim(),
-              email: draft.email.trim(),
-              licenseNumber: draft.licenseNumber.trim(),
-              drivingLicenseFrontUrl: draft.documents.drivingLicenseFrontUrl
-                  .trim(),
-              drivingLicenseBackUrl: draft.documents.drivingLicenseBackUrl
-                  .trim(),
-              nationalIdType: draft.nationalIdType.trim(),
-              nationalIdNumber: draft.nationalIdNumber.trim(),
-              nationalIdFrontUrl: draft.documents.nationalIdFrontUrl.trim(),
-              nationalIdBackUrl: draft.documents.nationalIdBackUrl.trim(),
-            ),
-          );
+          .updateKYC(payload: payload);
+      _debugSaveSucceeded(RiderSetupSection.kyc, envelope);
       _applySavedProfile(
         RiderSetupSection.kyc,
         envelope.data,
@@ -262,20 +275,25 @@ class RiderComplianceController extends AsyncNotifier<RiderComplianceState> {
 
     _setSectionSaving(RiderSetupSection.vehicle, true);
     try {
+      final payload = VehiclePayload(
+        vehicleType: draft.vehicleType.trim(),
+        make: draft.make.trim(),
+        model: draft.model.trim(),
+        year: draft.year,
+        registrationNumber: draft.registrationNumber.trim(),
+        rcDocumentUrl: draft.rcDocumentUrl.trim(),
+        insuranceDocumentUrl: draft.insuranceDocumentUrl.trim(),
+      );
+      _debugSaveStarted(
+        section: RiderSetupSection.vehicle,
+        endpoint: '/api/v1/rider/vehicle',
+        payloadKeys: payload.toJson().keys,
+      );
       final envelope = await ref
           .read(riderBackendApiProvider)
           .rider
-          .updateVehicle(
-            payload: VehiclePayload(
-              vehicleType: draft.vehicleType.trim(),
-              make: draft.make.trim(),
-              model: draft.model.trim(),
-              year: draft.year,
-              registrationNumber: draft.registrationNumber.trim(),
-              rcDocumentUrl: draft.rcDocumentUrl.trim(),
-              insuranceDocumentUrl: draft.insuranceDocumentUrl.trim(),
-            ),
-          );
+          .updateVehicle(payload: payload);
+      _debugSaveSucceeded(RiderSetupSection.vehicle, envelope);
       _applySavedProfile(
         RiderSetupSection.vehicle,
         envelope.data,
@@ -306,18 +324,23 @@ class RiderComplianceController extends AsyncNotifier<RiderComplianceState> {
 
     _setSectionSaving(RiderSetupSection.bank, true);
     try {
+      final payload = BankDetailsPayload(
+        accountHolderName: draft.accountHolderName.trim(),
+        accountNumber: draft.accountNumber.trim(),
+        ifscCode: draft.ifscCode.trim().toUpperCase(),
+        bankName: draft.bankName.trim(),
+        branchName: draft.branchName.trim(),
+      );
+      _debugSaveStarted(
+        section: RiderSetupSection.bank,
+        endpoint: '/api/v1/rider/bank-details',
+        payloadKeys: payload.toJson().keys,
+      );
       final envelope = await ref
           .read(riderBackendApiProvider)
           .rider
-          .updateBankDetails(
-            payload: BankDetailsPayload(
-              accountHolderName: draft.accountHolderName.trim(),
-              accountNumber: draft.accountNumber.trim(),
-              ifscCode: draft.ifscCode.trim().toUpperCase(),
-              bankName: draft.bankName.trim(),
-              branchName: draft.branchName.trim(),
-            ),
-          );
+          .updateBankDetails(payload: payload);
+      _debugSaveSucceeded(RiderSetupSection.bank, envelope);
       _applySavedProfile(
         RiderSetupSection.bank,
         envelope.data,
@@ -344,6 +367,11 @@ class RiderComplianceController extends AsyncNotifier<RiderComplianceState> {
       final parsed = data.isEmpty
           ? current.profile
           : RiderComplianceProfile.fromJson(data).withFallback(current.profile);
+      debugLog(
+        '${section.name} state refreshed saveSucceeded=true '
+        'responseEmpty=${data.isEmpty} riderType=${parsed.riderTypeLabel} '
+        'mode=${parsed.mode.isEmpty ? 'platform' : parsed.mode}',
+      );
       return current.copyWith(
         profile: parsed,
         sectionErrors: _withoutKey(current.sectionErrors, section),
@@ -355,7 +383,12 @@ class RiderComplianceController extends AsyncNotifier<RiderComplianceState> {
   void _ensureAuthenticated() {
     final prefs = ref.read(appPreferencesProvider);
     final token = prefs.accessToken;
-    final role = AppRoutes.normalizeRole(prefs.authRole);
+    final rawRole = prefs.rawAuthRole;
+    final role = AppRoutes.normalizeRole(rawRole);
+    debugLog(
+      'auth check rawRole=${rawRole ?? 'missing'} '
+      'normalizedRole=${role ?? 'missing'}',
+    );
     if (!prefs.isAuthenticated ||
         token == null ||
         token.isEmpty ||
@@ -513,6 +546,27 @@ class RiderComplianceController extends AsyncNotifier<RiderComplianceState> {
     final next = Map<T, String>.from(map);
     next.remove(key);
     return next;
+  }
+
+  void _debugSaveStarted({
+    required RiderSetupSection section,
+    required String endpoint,
+    required Iterable<String> payloadKeys,
+  }) {
+    final current = state.valueOrNull?.profile;
+    debugLog(
+      '${section.name} save started endpoint=$endpoint '
+      'payloadKeys=${payloadKeys.join(',')} '
+      'riderType=${current?.riderTypeLabel ?? 'unknown'} '
+      'mode=${current == null || current.mode.isEmpty ? 'platform' : current.mode}',
+    );
+  }
+
+  void _debugSaveSucceeded(RiderSetupSection section, dynamic envelope) {
+    debugLog(
+      '${section.name} save response status=${envelope.statusCode ?? 'unknown'} '
+      'responseKeys=${envelope.data.keys.join(',')}',
+    );
   }
 
   String? _firstNonEmptyString(List<Object?> values) {

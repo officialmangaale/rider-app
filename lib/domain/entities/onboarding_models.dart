@@ -27,6 +27,7 @@ class KycPayload {
 
   Map<String, dynamic> toJson() {
     final payload = <String, dynamic>{
+      'driving_license_number': licenseNumber,
       'license_number': licenseNumber,
       'driving_license_front_url': drivingLicenseFrontUrl,
       'driving_license_back_url': drivingLicenseBackUrl,
@@ -69,6 +70,8 @@ class VehiclePayload {
       'model': model,
       'year': year,
       'registration_number': registrationNumber,
+      'registration_no': registrationNumber,
+      'vehicle_number': registrationNumber,
     };
     _putIfNotBlank(payload, 'rc_document_url', rcDocumentUrl);
     _putIfNotBlank(payload, 'insurance_document_url', insuranceDocumentUrl);

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../domain/entities/app_models.dart';
 import 'core_providers.dart';
 
@@ -9,10 +10,7 @@ import 'core_providers.dart';
 // ---------------------------------------------------------------------------
 
 class OrdersState {
-  const OrdersState({
-    this.incoming = const [],
-    this.queued = const [],
-  });
+  const OrdersState({this.incoming = const [], this.queued = const []});
 
   final List<DeliveryOrder> incoming;
   final List<DeliveryOrder> queued;
@@ -29,9 +27,7 @@ class OrdersState {
 }
 
 final ordersControllerProvider =
-    AsyncNotifierProvider<OrdersController, OrdersState>(
-  OrdersController.new,
-);
+    AsyncNotifierProvider<OrdersController, OrdersState>(OrdersController.new);
 
 class OrdersController extends AsyncNotifier<OrdersState> {
   @override

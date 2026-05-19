@@ -42,7 +42,9 @@ class AppRoutes {
   static const settings = '/settings';
   static const restaurantOrderBase = '/restaurant-order';
 
-  static const _supportedRiderRoles = {'rider', 'delivery_driver'};
+  static const canonicalRiderRole = 'delivery_driver';
+  static const _legacyRiderRoles = {'rider'};
+  static const _supportedRiderRoles = {canonicalRiderRole};
 
   static String historyDetail(String id) => '$history/$id';
 
@@ -50,10 +52,26 @@ class AppRoutes {
 
   static String? normalizeRole(String? role) {
     final normalized = role?.trim().toLowerCase().replaceAll('-', '_');
+    if (normalized == null || normalized.isEmpty) {
+      return null;
+    }
+    if (_legacyRiderRoles.contains(normalized)) {
+      return canonicalRiderRole;
+    }
+    return normalized;
+  }
+
+  static String? rawRole(String? role) {
+    final normalized = role?.trim().toLowerCase().replaceAll('-', '_');
     return normalized == null || normalized.isEmpty ? null : normalized;
   }
 
   static String? extractRole(Map<String, dynamic> data) {
+    final raw = extractRawRole(data);
+    return raw == null ? null : normalizeRole(raw);
+  }
+
+  static String? extractRawRole(Map<String, dynamic> data) {
     final user = _asStringMap(data['user']);
     final rider = _asStringMap(data['rider']);
     for (final value in [
@@ -71,7 +89,7 @@ class AppRoutes {
       _firstRole(data['roles']),
     ]) {
       if (value is String && value.trim().isNotEmpty) {
-        return normalizeRole(value);
+        return rawRole(value);
       }
     }
     return null;
@@ -173,7 +191,7 @@ class AppRoutes {
   }) {
     assert(() {
       debugPrint(
-        'Post-auth route resolved: $route for role=${normalizeRole(role) ?? 'unknown'} source=$source',
+        'Post-auth route resolved: $route for rawRole=${rawRole(role) ?? 'unknown'} normalizedRole=${normalizeRole(role) ?? 'unknown'} source=$source',
       );
       return true;
     }());

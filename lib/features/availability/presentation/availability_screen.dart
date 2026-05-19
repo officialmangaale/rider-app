@@ -54,6 +54,12 @@ class AvailabilityScreen extends ConsumerWidget {
             subtitle: error is ApiException
                 ? error.message
                 : 'Something went wrong.',
+            action: SecondaryButton(
+              label: 'Retry',
+              icon: Icons.refresh_rounded,
+              onPressed: () =>
+                  ref.read(availabilityControllerProvider.notifier).refresh(),
+            ),
           ),
         ),
         data: (shift) => ListView(

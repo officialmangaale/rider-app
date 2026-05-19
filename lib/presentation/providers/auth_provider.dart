@@ -59,10 +59,17 @@ class SessionController extends Notifier<SessionState> {
   SessionState build() {
     final prefs = ref.watch(appPreferencesProvider);
     final hasToken = (prefs.accessToken ?? '').isNotEmpty;
+    final rawRole = prefs.rawAuthRole;
+    final normalizedRole = AppRoutes.normalizeRole(rawRole);
+    _debugSessionRole(
+      source: 'session_build',
+      rawRole: rawRole,
+      normalizedRole: normalizedRole,
+    );
     return SessionState(
       status: hasToken ? AuthStatus.authenticated : AuthStatus.unauthenticated,
       hasSeenOnboarding: prefs.hasSeenOnboarding,
-      role: AppRoutes.normalizeRole(prefs.authRole),
+      role: normalizedRole,
     );
   }
 
@@ -182,15 +189,18 @@ class SessionController extends Notifier<SessionState> {
     _clearUserScopedState(disconnectRealtime: true);
 
     final data = _authPayload(envelope);
+    final parsedRawRole = AppRoutes.extractRawRole(data);
     final role =
-        AppRoutes.extractRole(data) ?? AppRoutes.normalizeRole(fallbackRole);
+        AppRoutes.normalizeRole(parsedRawRole) ??
+        AppRoutes.normalizeRole(fallbackRole);
     final accessToken = _extractAccessToken(data, envelope.raw);
     final refreshToken = _extractRefreshToken(data, envelope.raw);
 
     _debugAuth(
       'Auth response source=$source status=${envelope.statusCode ?? 'unknown'} '
       'dataKeys=${data.keys.join(',')} rawKeys=${envelope.raw.keys.join(',')} '
-      'tokenFound=${accessToken == null ? 'no' : 'yes'} role=${role ?? 'missing'}',
+      'tokenFound=${accessToken == null ? 'no' : 'yes'} '
+      'rawRole=${parsedRawRole ?? fallbackRole ?? 'missing'} normalizedRole=${role ?? 'missing'}',
     );
 
     if (role == null || !AppRoutes.isSupportedRiderRole(role)) {
@@ -219,6 +229,11 @@ class SessionController extends Notifier<SessionState> {
     final storedAccessToken = preferences.accessToken;
     final storedRefreshToken = preferences.refreshToken;
     final storedRole = AppRoutes.normalizeRole(preferences.authRole);
+    _debugSessionRole(
+      source: 'auth_save',
+      rawRole: preferences.rawAuthRole,
+      normalizedRole: storedRole,
+    );
     final refreshSaved =
         refreshToken == null || refreshToken == storedRefreshToken;
     if (storedAccessToken != accessToken ||
@@ -235,7 +250,7 @@ class SessionController extends Notifier<SessionState> {
     state = state.copyWith(status: AuthStatus.authenticated, role: role);
     _clearUserScopedState(disconnectRealtime: false);
     ref.read(appRouterRefreshProvider).refresh();
-    _debugAuth('Auth session saved source=$source role=$role');
+    _debugAuth('Auth session saved source=$source normalizedRole=$role');
   }
 
   void _clearUserScopedState({required bool disconnectRealtime}) {
@@ -358,6 +373,20 @@ class SessionController extends Notifier<SessionState> {
   void _debugAuth(String message) {
     assert(() {
       debugPrint(message);
+      return true;
+    }());
+  }
+
+  void _debugSessionRole({
+    required String source,
+    required String? rawRole,
+    required String? normalizedRole,
+  }) {
+    assert(() {
+      debugPrint(
+        'Auth role normalized source=$source rawRole=${rawRole ?? 'missing'} '
+        'normalizedRole=${normalizedRole ?? 'missing'}',
+      );
       return true;
     }());
   }

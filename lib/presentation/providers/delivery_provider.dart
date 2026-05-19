@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../domain/entities/app_models.dart';
 import 'core_providers.dart';
 
@@ -30,8 +31,8 @@ class DeliveryState {
 
 final deliveryControllerProvider =
     AsyncNotifierProvider<DeliveryController, DeliveryState>(
-  DeliveryController.new,
-);
+      DeliveryController.new,
+    );
 
 class DeliveryController extends AsyncNotifier<DeliveryState> {
   @override
@@ -65,9 +66,7 @@ class DeliveryController extends AsyncNotifier<DeliveryState> {
     if (current.activeOrder != null) {
       // Already have active, queue the new one.
       state = AsyncValue.data(
-        current.copyWith(
-          queuedOrders: [...current.queuedOrders, order],
-        ),
+        current.copyWith(queuedOrders: [...current.queuedOrders, order]),
       );
     } else {
       state = AsyncValue.data(current.copyWith(activeOrder: order));

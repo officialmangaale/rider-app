@@ -632,7 +632,12 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   bool _hasValidSession() {
     final prefs = ref.read(appPreferencesProvider);
     final token = prefs.accessToken;
-    final role = AppRoutes.normalizeRole(prefs.authRole);
+    final rawRole = prefs.rawAuthRole;
+    final role = AppRoutes.normalizeRole(rawRole);
+    _debug(
+      'session check rawRole=${rawRole ?? 'missing'} '
+      'normalizedRole=${role ?? 'missing'}',
+    );
     return prefs.isAuthenticated &&
         token != null &&
         token.isNotEmpty &&

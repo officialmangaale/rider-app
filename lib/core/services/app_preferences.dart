@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/app_constants.dart';
 import '../network/api_client.dart';
+import '../router/app_routes.dart';
 
 class AppPreferences implements ApiTokenStore {
   AppPreferences(this._preferences);
@@ -68,7 +69,11 @@ class AppPreferences implements ApiTokenStore {
       (_preferences.getBool(AppConstants.preferencesAuthKey) ?? false) ||
       (accessToken?.isNotEmpty ?? false);
 
-  String? get authRole =>
+  String? get authRole => AppRoutes.normalizeRole(
+    _preferences.getString(AppConstants.preferencesAuthRoleKey),
+  );
+
+  String? get rawAuthRole =>
       _preferences.getString(AppConstants.preferencesAuthRoleKey);
 
   Future<void> setAuthenticated(bool value) {
@@ -76,11 +81,15 @@ class AppPreferences implements ApiTokenStore {
   }
 
   Future<void> setAuthRole(String? role) async {
-    if (role == null || role.isEmpty) {
+    final normalized = AppRoutes.normalizeRole(role);
+    if (normalized == null || normalized.isEmpty) {
       await _preferences.remove(AppConstants.preferencesAuthRoleKey);
       return;
     }
-    await _preferences.setString(AppConstants.preferencesAuthRoleKey, role);
+    await _preferences.setString(
+      AppConstants.preferencesAuthRoleKey,
+      normalized,
+    );
   }
 
   @override

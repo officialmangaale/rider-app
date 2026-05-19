@@ -289,6 +289,8 @@ class RiderComplianceProfile {
     this.documents = const RiderComplianceDocuments(),
     this.vehicle = const RiderVehicleCompliance(),
     this.bank = const RiderBankCompliance(),
+    this.mode = '',
+    this.linkedRestaurantCount = 0,
     this.isAvailable = false,
     this.onTrip = false,
     this.currentLat,
@@ -309,6 +311,8 @@ class RiderComplianceProfile {
   final RiderComplianceDocuments documents;
   final RiderVehicleCompliance vehicle;
   final RiderBankCompliance bank;
+  final String mode;
+  final int linkedRestaurantCount;
   final bool isAvailable;
   final bool onTrip;
   final double? currentLat;
@@ -348,6 +352,12 @@ class RiderComplianceProfile {
 
   bool get hasLocationSnapshot =>
       currentLat != null && currentLng != null && lastLocationUpdate != null;
+
+  bool get isRestaurantLinked =>
+      _normalize(mode) == 'restaurant_owned' || linkedRestaurantCount > 0;
+
+  String get riderTypeLabel =>
+      isRestaurantLinked ? 'Restaurant-linked rider' : 'Self-signup rider';
 
   int completedSections({required bool locationReady}) {
     return [
@@ -389,6 +399,8 @@ class RiderComplianceProfile {
     RiderComplianceDocuments? documents,
     RiderVehicleCompliance? vehicle,
     RiderBankCompliance? bank,
+    String? mode,
+    int? linkedRestaurantCount,
     bool? isAvailable,
     bool? onTrip,
     double? currentLat,
@@ -412,6 +424,9 @@ class RiderComplianceProfile {
       documents: documents ?? this.documents,
       vehicle: vehicle ?? this.vehicle,
       bank: bank ?? this.bank,
+      mode: mode ?? this.mode,
+      linkedRestaurantCount:
+          linkedRestaurantCount ?? this.linkedRestaurantCount,
       isAvailable: isAvailable ?? this.isAvailable,
       onTrip: onTrip ?? this.onTrip,
       currentLat: clearCurrentLat ? null : currentLat ?? this.currentLat,
@@ -437,6 +452,10 @@ class RiderComplianceProfile {
       documents: documents.withFallback(fallback.documents),
       vehicle: vehicle.withFallback(fallback.vehicle),
       bank: bank.withFallback(fallback.bank),
+      mode: _fallback(mode, fallback.mode),
+      linkedRestaurantCount: linkedRestaurantCount > 0
+          ? linkedRestaurantCount
+          : fallback.linkedRestaurantCount,
       isAvailable: isAvailable,
       onTrip: onTrip,
       currentLat: currentLat ?? fallback.currentLat,
@@ -462,6 +481,14 @@ class RiderComplianceProfile {
     final vehicleData = _readMap(json['vehicle']);
     final vehicleDetails = _readMap(source['vehicle_details']);
     final insuranceDetails = _readMap(source['insurance_details']);
+    final linkedRestaurants = _readList(
+      _firstPresent([
+        json['linked_restaurants'],
+        json['restaurants'],
+        json['assigned_restaurants'],
+        rider['linked_restaurants'],
+      ]),
+    );
     final bankData = _readMap(
       _firstPresent([source['bank_details'], json['bank_account']]),
     );
@@ -512,7 +539,9 @@ class RiderComplianceProfile {
         registrationNumber: _asString(
           _firstPresent([
             source['vehicle_registration_number'],
+            source['vehicle_number'],
             source['registration_number'],
+            source['registration_no'],
             vehicleData['registration_number'],
             vehicleData['registration_no'],
             vehicleData['vehicle_number'],
@@ -549,6 +578,8 @@ class RiderComplianceProfile {
         bankName: _asString(bankData['bank_name']),
         branchName: _asString(bankData['branch_name']),
       ),
+      mode: _asString(_firstPresent([source['mode'], json['mode']])),
+      linkedRestaurantCount: linkedRestaurants.length,
       isAvailable: _asBool(source['is_available']) ?? false,
       onTrip: _asBool(source['on_trip']) ?? false,
       currentLat: _asDoubleOrNull(source['current_lat']),
@@ -696,4 +727,21 @@ Map<String, dynamic> _readMap(Object? value) {
     }
   }
   return const <String, dynamic>{};
+}
+
+List<dynamic> _readList(Object? value) {
+  if (value is List) {
+    return value;
+  }
+  if (value is String && value.trim().isNotEmpty) {
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is List) {
+        return decoded;
+      }
+    } catch (_) {
+      return const <dynamic>[];
+    }
+  }
+  return const <dynamic>[];
 }

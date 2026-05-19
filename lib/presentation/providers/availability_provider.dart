@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../domain/entities/app_models.dart';
 import '../../features/delivery/providers/rider_delivery_provider.dart';
 import 'core_providers.dart';
@@ -21,32 +23,46 @@ class AvailabilityController extends AsyncNotifier<ShiftSummary> {
 
   Future<ShiftSummary> _fetch() async {
     final api = ref.read(riderBackendApiProvider);
-    final envelope = await api.rider.getAvailability();
-    final data = envelope.data;
+    try {
+      _debugAvailability('GET /api/v1/rider/availability state=fetching');
+      final envelope = await api.rider.getAvailability();
+      final data = envelope.data;
+      _debugAvailability(
+        'GET /api/v1/rider/availability status=${envelope.statusCode ?? 'unknown'} '
+        'responseKeys=${data.keys.join(',')}',
+      );
 
-    final isAvailable = data['is_available'] == true;
-    final onTrip = data['on_trip'] == true;
+      final isAvailable =
+          data['is_available'] == true || data['is_is_available'] == true;
+      final onTrip = data['on_trip'] == true;
 
-    String statusStr;
-    if (onTrip) {
-      statusStr = 'busy';
-    } else if (isAvailable) {
-      statusStr = 'online';
-    } else {
-      statusStr = 'offline';
+      String statusStr;
+      if (onTrip) {
+        statusStr = 'busy';
+      } else if (isAvailable) {
+        statusStr = 'online';
+      } else {
+        statusStr = 'offline';
+      }
+
+      return ShiftSummary.fromJson({
+        'status': statusStr,
+        'shiftStart': DateTime.now().toIso8601String(),
+        'shiftEnd': DateTime.now()
+            .add(const Duration(hours: 10))
+            .toIso8601String(),
+        'breakMinutes': 0,
+        'preferredWindow': '',
+        'activeHours': 0.0,
+        'statusMessage': isAvailable ? 'You are online' : 'You are offline',
+      });
+    } on ApiException catch (error) {
+      _debugAvailability(
+        'GET /api/v1/rider/availability status=${error.statusCode ?? 'unknown'} '
+        'error=${error.errorCode ?? error.message}',
+      );
+      rethrow;
     }
-
-    return ShiftSummary.fromJson({
-      'status': statusStr,
-      'shiftStart': DateTime.now().toIso8601String(),
-      'shiftEnd': DateTime.now()
-          .add(const Duration(hours: 10))
-          .toIso8601String(),
-      'breakMinutes': 0,
-      'preferredWindow': '',
-      'activeHours': 0.0,
-      'statusMessage': isAvailable ? 'You are online' : 'You are offline',
-    });
   }
 
   /// Toggle availability — updates only this provider's state.
@@ -86,3 +102,10 @@ final isRiderOnlineProvider = Provider<bool>((ref) {
   final shift = ref.watch(availabilityControllerProvider).valueOrNull;
   return shift?.status == AvailabilityStatus.online;
 });
+
+void _debugAvailability(String message) {
+  assert(() {
+    debugPrint('[RiderAvailability] $message');
+    return true;
+  }());
+}

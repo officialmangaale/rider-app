@@ -173,9 +173,8 @@ class _SetupProgressCard extends StatelessWidget {
         children: [
           SectionHeader(
             title: 'Complete your rider profile',
-            subtitle: ready
-                ? 'Your setup is ready for online delivery.'
-                : 'Finish the required sections before going online.',
+            subtitle:
+                '${profile.riderTypeLabel} - ${ready ? 'Ready for online delivery.' : 'Finish the required sections before going online.'}',
             trailing: StatusPill(
               label: isOnline
                   ? 'Online'
