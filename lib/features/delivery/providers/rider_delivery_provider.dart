@@ -9,6 +9,7 @@ import '../../../core/router/app_routes.dart';
 import '../../../data/services/rider_backend_api.dart';
 import '../../../domain/entities/rider_compliance_models.dart';
 import '../../../presentation/providers/core_providers.dart';
+import '../../restaurant_rider/providers/restaurant_rider_provider.dart';
 import '../models/delivery_models.dart';
 import '../services/rider_delivery_api_service.dart';
 import '../services/rider_location_service.dart';
@@ -56,6 +57,16 @@ final riderSocketServiceProvider = Provider<RiderSocketService>((ref) {
           .read(riderDeliveryControllerProvider.notifier)
           ._onRequestAssignedToOther(requestId);
     },
+    onRestaurantOwnedOrderAssigned: (orderId, restaurantId) {
+      ref
+          .read(riderDeliveryControllerProvider.notifier)
+          ._onRestaurantOwnedOrderAssigned(orderId, restaurantId);
+    },
+    onConnectionChanged: (connected) {
+      ref
+          .read(riderDeliveryControllerProvider.notifier)
+          ._onSocketConnectionChanged(connected);
+    },
   );
 });
 
@@ -74,7 +85,9 @@ class RiderDeliveryState {
     this.isOnline = false,
     this.isAvailable = false,
     this.socketConnected = false,
+    this.pollingFallbackActive = false,
     this.pendingRequests = const [],
+    this.requestErrorMessage,
     this.activeOrderId,
     this.activeOrder,
     this.seenRequestIds = const {},
@@ -92,7 +105,9 @@ class RiderDeliveryState {
   final bool isOnline;
   final bool isAvailable;
   final bool socketConnected;
+  final bool pollingFallbackActive;
   final List<RiderOrderRequestModel> pendingRequests;
+  final String? requestErrorMessage;
   final int? activeOrderId;
   final ActiveDeliveryOrderModel? activeOrder;
   final Set<int> seenRequestIds;
@@ -129,7 +144,10 @@ class RiderDeliveryState {
     bool? isOnline,
     bool? isAvailable,
     bool? socketConnected,
+    bool? pollingFallbackActive,
     List<RiderOrderRequestModel>? pendingRequests,
+    String? requestErrorMessage,
+    bool clearRequestError = false,
     int? activeOrderId,
     bool clearActiveOrderId = false,
     ActiveDeliveryOrderModel? activeOrder,
@@ -152,7 +170,12 @@ class RiderDeliveryState {
       isOnline: isOnline ?? this.isOnline,
       isAvailable: isAvailable ?? this.isAvailable,
       socketConnected: socketConnected ?? this.socketConnected,
+      pollingFallbackActive:
+          pollingFallbackActive ?? this.pollingFallbackActive,
       pendingRequests: pendingRequests ?? this.pendingRequests,
+      requestErrorMessage: clearRequestError
+          ? null
+          : (requestErrorMessage ?? this.requestErrorMessage),
       activeOrderId: clearActiveOrderId
           ? null
           : (activeOrderId ?? this.activeOrderId),
@@ -190,6 +213,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   static const _idleSendInterval = Duration(seconds: 30);
   static const _activeSendInterval = Duration(seconds: 15);
   static const _duplicateHeartbeatInterval = Duration(minutes: 2);
+  static const _fallbackPollInterval = Duration(seconds: 15);
   static const _idleDistanceMeters = 25.0;
   static const _activeDistanceMeters = 10.0;
 
@@ -199,6 +223,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   bool _desiredTracking = false;
   bool _isForeground = true;
   bool _bootstrapInFlight = false;
+  Timer? _fallbackPollTimer;
 
   @override
   RiderDeliveryState build() {
@@ -206,6 +231,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     final socket = ref.read(riderSocketServiceProvider);
     ref.onDispose(() {
       _desiredTracking = false;
+      _stopFallbackPolling(updateState: false);
       location.stopTracking();
       socket.disconnect();
     });
@@ -245,9 +271,18 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       );
 
       if (availability.isOnline) {
+        ref.read(riderSocketServiceProvider).connect();
+        _startFallbackPolling();
+        await refreshPendingRequests();
         await _startLocationTracking(requestPermission: requestPermission);
+        if (availability.currentOrderId != null) {
+          await fetchActiveOrder(availability.currentOrderId!);
+        } else {
+          await refreshActiveOrder();
+        }
       } else {
         _desiredTracking = false;
+        _stopFallbackPolling();
         location.stopTracking();
         state = state.copyWith(
           locationStatus: readiness.canTrack
@@ -288,6 +323,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     _sendInFlight = false;
     _lastSentAt = null;
     _lastSentPosition = null;
+    _stopFallbackPolling();
     ref.read(riderLocationServiceProvider).stopTracking();
     ref.read(riderSocketServiceProvider).disconnect();
     state = const RiderDeliveryState();
@@ -310,13 +346,16 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     if (!online) {
       await api.rider.goOffline();
       _desiredTracking = false;
+      _stopFallbackPolling();
       location.stopTracking();
       socket.disconnect();
       state = state.copyWith(
         isOnline: false,
         isAvailable: false,
         socketConnected: false,
+        pollingFallbackActive: false,
         pendingRequests: const [],
+        clearRequestError: true,
         locationStatus: RiderLocationTrackingStatus.idle,
         locationMessage: 'You are offline. Location tracking is off.',
       );
@@ -352,10 +391,12 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     if (availability.isOnline) {
       await _startLocationTracking(requestPermission: false);
       socket.connect();
-      state = state.copyWith(socketConnected: true);
+      _startFallbackPolling();
       await refreshPendingRequests();
       if (availability.currentOrderId != null) {
         await fetchActiveOrder(availability.currentOrderId!);
+      } else {
+        await refreshActiveOrder();
       }
     }
   }
@@ -647,12 +688,14 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
 
   void _markUnauthorized() {
     _desiredTracking = false;
+    _stopFallbackPolling();
     ref.read(riderLocationServiceProvider).stopTracking();
     ref.read(riderSocketServiceProvider).disconnect();
     state = state.copyWith(
       isOnline: false,
       isAvailable: false,
       socketConnected: false,
+      pollingFallbackActive: false,
       locationStatus: RiderLocationTrackingStatus.unauthorized,
       locationMessage: 'Your session expired. Please sign in again.',
       lastLocationFailure: DateTime.now(),
@@ -749,17 +792,33 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   }
 
   void _onNewDeliveryRequest(RiderOrderRequestModel request) {
-    if (state.seenRequestIds.contains(request.requestId)) return;
+    final requestKey = _requestKey(request);
+    final updatedRequests = _mergePendingRequests(
+      state.pendingRequests,
+      [request],
+    );
+    if (updatedRequests.length == state.pendingRequests.length &&
+        state.pendingRequests.any((item) => _requestKey(item) == requestKey)) {
+      _debug(
+        'duplicate request ignored requestId=${request.requestId} orderId=${request.orderId}',
+      );
+      return;
+    }
 
     final updatedSeen = Set<int>.from(state.seenRequestIds)
       ..add(request.requestId);
+    _debug(
+      'request received requestId=${request.requestId} orderId=${request.orderId}',
+    );
     state = state.copyWith(
-      pendingRequests: [...state.pendingRequests, request],
+      pendingRequests: updatedRequests,
       seenRequestIds: updatedSeen,
+      clearRequestError: true,
     );
   }
 
   void _onRequestExpired(int requestId) {
+    _debug('request expired requestId=$requestId');
     state = state.copyWith(
       pendingRequests: state.pendingRequests
           .where((r) => r.requestId != requestId)
@@ -768,11 +827,40 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   }
 
   void _onRequestAssignedToOther(int requestId) {
+    _debug('request assigned to other requestId=$requestId');
     state = state.copyWith(
       pendingRequests: state.pendingRequests
           .where((r) => r.requestId != requestId)
           .toList(),
     );
+  }
+
+  void _onSocketConnectionChanged(bool connected) {
+    state = state.copyWith(socketConnected: connected);
+    _debug('socket connected=$connected');
+    if (connected) {
+      unawaited(refreshPendingRequests());
+    } else if (state.isOnline) {
+      _startFallbackPolling();
+    }
+  }
+
+  Future<void> _onRestaurantOwnedOrderAssigned(
+    int orderId,
+    int? restaurantId,
+  ) async {
+    _debug(
+      'restaurant-owned assignment orderId=$orderId restaurantId=${restaurantId ?? 'unknown'}',
+    );
+    state = state.copyWith(
+      activeOrderId: orderId,
+      isAvailable: false,
+      pendingRequests: state.pendingRequests
+          .where((request) => request.orderId != orderId)
+          .toList(),
+    );
+    await fetchActiveOrder(orderId);
+    ref.invalidate(activeOrdersProvider);
   }
 
   Future<void> refreshPendingRequests() async {
@@ -781,9 +869,40 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
           .read(riderDeliveryApiServiceProvider)
           .getPendingOrderRequests();
 
-      state = state.copyWith(pendingRequests: response.data);
+      final pending = _mergePendingRequests(const [], response.data);
+      state = state.copyWith(
+        pendingRequests: pending,
+        seenRequestIds: {
+          ...state.seenRequestIds,
+          ...pending.map((request) => request.requestId),
+        },
+        clearRequestError: true,
+      );
+      _debug(
+        'pending requests refresh success status=${response.statusCode ?? 'unknown'} count=${response.data.length}',
+      );
+    } on ApiException catch (error) {
+      if (error.statusCode == 401) {
+        _markUnauthorized();
+      } else if (error.statusCode == 404) {
+        state = state.copyWith(
+          pendingRequests: const [],
+          clearRequestError: true,
+        );
+        _debug('pending requests refresh empty status=404');
+      } else {
+        state = state.copyWith(
+          requestErrorMessage: _requestErrorMessage(error),
+        );
+        _debug(
+          'pending requests refresh failed status=${error.statusCode ?? 'unknown'} code=${error.errorCode ?? 'none'}',
+        );
+      }
     } catch (error) {
-      _debug('pending requests refresh failed=$error');
+      state = state.copyWith(
+        requestErrorMessage: 'Could not refresh order requests.',
+      );
+      _debug('pending requests refresh failed error=$error');
     }
   }
 
@@ -792,35 +911,85 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       final response = await ref
           .read(riderDeliveryApiServiceProvider)
           .getActiveDeliveryOrder(orderId);
+      final resolvedOrderId = response.data.orderId > 0
+          ? response.data.orderId
+          : orderId;
       state = state.copyWith(
         activeOrder: response.data,
-        activeOrderId: orderId,
+        activeOrderId: resolvedOrderId == 0 ? null : resolvedOrderId,
+        clearRequestError: true,
+      );
+      ref.invalidate(activeOrdersProvider);
+      _debug(
+        'active order refresh success status=${response.statusCode ?? 'unknown'} orderId=${response.data.orderId}',
       );
       if (state.isOnline) {
         await _startLocationTracking(requestPermission: false);
       }
+    } on ApiException catch (error) {
+      if (error.statusCode == 404) {
+        state = state.copyWith(clearActiveOrder: true, clearActiveOrderId: true);
+        _debug('active order refresh empty status=404');
+        return;
+      }
+      if (error.statusCode == 401) {
+        _markUnauthorized();
+        return;
+      }
+      state = state.copyWith(requestErrorMessage: _requestErrorMessage(error));
+      _debug(
+        'active order fetch failed status=${error.statusCode ?? 'unknown'} code=${error.errorCode ?? 'none'}',
+      );
     } catch (error) {
-      _debug('active order fetch failed=$error');
+      state = state.copyWith(
+        requestErrorMessage: 'Could not refresh active order.',
+      );
+      _debug('active order fetch failed error=$error');
     }
   }
 
+  Future<void> refreshActiveOrder() => fetchActiveOrder(
+    state.activeOrderId ?? state.activeOrder?.orderId ?? 0,
+  );
+
   Future<void> acceptRequest(int requestId) async {
     try {
+      final pendingOrderId = _pendingOrderIdForRequest(requestId);
       final response = await ref
           .read(riderDeliveryApiServiceProvider)
           .acceptOrderRequest(requestId);
+      _debug(
+        'accept request success status=${response.statusCode ?? 'unknown'} requestId=$requestId',
+      );
       state = state.copyWith(
-        activeOrder: response.data,
-        activeOrderId: response.data.orderId,
         isAvailable: false,
         pendingRequests: state.pendingRequests
             .where((r) => r.requestId != requestId)
             .toList(),
+        clearRequestError: true,
       );
+      final acceptedOrderId = _acceptedOrderId(response.data) ?? pendingOrderId;
+      if (acceptedOrderId != null && acceptedOrderId > 0) {
+        state = state.copyWith(activeOrderId: acceptedOrderId);
+      }
+      await refreshActiveOrder();
+      if (state.activeOrder == null) {
+        throw const ApiException(
+          message: 'Order accepted, but active order could not be loaded.',
+          errorCode: 'ACTIVE_ORDER_REFRESH_FAILED',
+        );
+      }
+      ref.invalidate(activeOrdersProvider);
       if (state.isOnline) {
         await _startLocationTracking(requestPermission: false);
       }
+    } on ApiException catch (e) {
+      _debug(
+        'accept request failed status=${e.statusCode ?? 'unknown'} code=${e.errorCode ?? 'none'} requestId=$requestId',
+      );
+      rethrow;
     } catch (e) {
+      _debug('accept request failed error=$e requestId=$requestId');
       rethrow;
     }
   }
@@ -830,12 +999,21 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       await ref
           .read(riderDeliveryApiServiceProvider)
           .rejectOrderRequest(requestId);
+      _debug('reject request success requestId=$requestId');
       state = state.copyWith(
         pendingRequests: state.pendingRequests
             .where((r) => r.requestId != requestId)
             .toList(),
+        clearRequestError: true,
       );
+      await refreshPendingRequests();
+    } on ApiException catch (e) {
+      _debug(
+        'reject request failed status=${e.statusCode ?? 'unknown'} code=${e.errorCode ?? 'none'} requestId=$requestId',
+      );
+      rethrow;
     } catch (e) {
+      _debug('reject request failed error=$e requestId=$requestId');
       rethrow;
     }
   }
@@ -890,6 +1068,94 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     } catch (e) {
       rethrow;
     }
+  }
+
+  void _startFallbackPolling() {
+    if (_fallbackPollTimer != null) {
+      state = state.copyWith(pollingFallbackActive: true);
+      return;
+    }
+    _debug('fallback polling started');
+    state = state.copyWith(pollingFallbackActive: true);
+    _fallbackPollTimer = Timer.periodic(_fallbackPollInterval, (_) {
+      if (!state.isOnline) {
+        _stopFallbackPolling();
+        return;
+      }
+      if (!state.socketConnected) {
+        unawaited(refreshPendingRequests());
+      }
+    });
+  }
+
+  void _stopFallbackPolling({bool updateState = true}) {
+    _fallbackPollTimer?.cancel();
+    _fallbackPollTimer = null;
+    if (updateState && state.pollingFallbackActive) {
+      state = state.copyWith(pollingFallbackActive: false);
+    }
+    _debug('fallback polling stopped');
+  }
+
+  List<RiderOrderRequestModel> _mergePendingRequests(
+    List<RiderOrderRequestModel> existing,
+    List<RiderOrderRequestModel> incoming,
+  ) {
+    final byKey = <String, RiderOrderRequestModel>{};
+    for (final request in [...existing, ...incoming]) {
+      if (request.requestId <= 0 && request.orderId <= 0) {
+        _debug('ignored malformed request without identifiers');
+        continue;
+      }
+      byKey[_requestKey(request)] = request;
+    }
+    final now = DateTime.now().toUtc();
+    final requests = byKey.values
+        .where((request) => request.expiresAt.toUtc().isAfter(now))
+        .toList();
+    requests.sort((a, b) => a.expiresAt.compareTo(b.expiresAt));
+    return requests;
+  }
+
+  String _requestKey(RiderOrderRequestModel request) {
+    if (request.requestId > 0) {
+      return 'DELIVERY_ORDER_REQUEST:${request.requestId}';
+    }
+    return 'DELIVERY_ORDER_REQUEST:order:${request.orderId}';
+  }
+
+  int? _pendingOrderIdForRequest(int requestId) {
+    for (final request in state.pendingRequests) {
+      if (request.requestId == requestId && request.orderId > 0) {
+        return request.orderId;
+      }
+    }
+    return null;
+  }
+
+  int? _acceptedOrderId(Map<String, dynamic> data) {
+    final order = _asMap(data['order']);
+    return _asIntOrNull(
+      _firstPresent([
+        data['order_id'],
+        data['id'],
+        order['id'],
+        order['order_id'],
+      ]),
+    );
+  }
+
+  String _requestErrorMessage(ApiException error) {
+    if (error.statusCode == 0) {
+      return 'Network unavailable. Retrying order requests.';
+    }
+    if (error.statusCode == 401) {
+      return 'Your session expired. Please sign in again.';
+    }
+    if ((error.statusCode ?? 0) >= 500) {
+      return 'Server could not refresh order requests. Retrying shortly.';
+    }
+    return error.message;
   }
 
   void _debug(String message) {

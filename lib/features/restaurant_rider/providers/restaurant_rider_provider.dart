@@ -7,21 +7,19 @@ import '../../../presentation/providers/core_providers.dart';
 
 // ---------------------------------------------------------------------------
 // Active orders provider
-// GET /api/v1/orders/available?status=active
+// GET /api/v1/orders/active
 // ---------------------------------------------------------------------------
 
 final activeOrdersProvider = FutureProvider.autoDispose<List<DeliveryOrder>>((
   ref,
 ) async {
   final api = ref.watch(riderBackendApiProvider);
-  const endpoint = '/api/v1/orders/available?status=active';
+  const endpoint = '/api/v1/orders/active';
 
   try {
-    final response = await api.orders.availableOrders(
-      queryParameters: const {'status': 'active'},
-    );
-    final items = _extractList(response.data);
-    final orders = _mapList(items, _deliveryOrderFromPayload);
+    final response = await api.orders.activeOrder();
+    final order = _deliveryOrderFromPayload(response.data);
+    final orders = order == null ? const <DeliveryOrder>[] : [order];
     _debugLog(
       '$endpoint status=${response.statusCode ?? 'unknown'} count=${orders.length} empty=${orders.isEmpty}',
     );
@@ -167,6 +165,7 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
         order['delivery_address'],
         order['drop_address'],
         customer['address'],
+        raw['delivery_address'],
         raw['drop_address'],
       ]),
       fallback: 'Drop address not available',
@@ -224,15 +223,7 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
       _firstPresent([order['eta_minutes'], raw['eta_minutes']]),
       fallback: 15,
     ),
-    payout: _asDouble(
-      _firstPresent([
-        order['net_earning'],
-        order['base_payout'],
-        order['payout'],
-        order['total_amount'],
-        raw['payout'],
-      ]),
-    ),
+    payout: _payoutFromOrder(order, raw),
     tip: _asDouble(_firstPresent([order['tip_amount'], order['tip']])),
     itemsCount: _asInt(
       _firstPresent([
@@ -241,7 +232,7 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
         raw['items_count'],
       ]),
       fallback: _extractList(order, keys: const ['items']).length,
-    ).clamp(1, 999).toInt(),
+    ).clamp(0, 999).toInt(),
     itemHighlights: _extractList(order, keys: const ['items'])
         .map((line) => _asString(_firstPresent([_asMap(line)['name'], line])))
         .where((line) => line.isNotEmpty)
@@ -502,6 +493,32 @@ double _asDouble(Object? value, {double fallback = 0}) {
     return double.tryParse(value.trim()) ?? fallback;
   }
   return fallback;
+}
+
+double _payoutFromOrder(
+  Map<String, dynamic> order,
+  Map<String, dynamic> raw,
+) {
+  final explicitPayout = _firstPresent([
+    order['net_earning'],
+    raw['net_earning'],
+    order['payout'],
+    raw['payout'],
+    order['total_payout'],
+    raw['total_payout'],
+  ]);
+  if (explicitPayout != null) {
+    return _asDouble(explicitPayout);
+  }
+
+  return _asDouble(_firstPresent([order['base_payout'], raw['base_payout']])) +
+      _asDouble(
+        _firstPresent([order['distance_payout'], raw['distance_payout']]),
+      ) +
+      _asDouble(
+        _firstPresent([order['waiting_charges'], raw['waiting_charges']]),
+      ) +
+      _asDouble(_firstPresent([order['surge_bonus'], raw['surge_bonus']]));
 }
 
 bool _asBool(Object? value, {bool fallback = false}) {

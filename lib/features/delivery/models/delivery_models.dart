@@ -73,6 +73,7 @@ class RiderOrderRequestModel {
     required this.requestId,
     required this.orderId,
     required this.restaurantId,
+    this.restaurantName,
     required this.pickupAddress,
     required this.dropAddress,
     required this.pickupLatitude,
@@ -87,6 +88,7 @@ class RiderOrderRequestModel {
   final int requestId;
   final int orderId;
   final int restaurantId;
+  final String? restaurantName;
   final String pickupAddress;
   final String dropAddress;
   final double pickupLatitude;
@@ -102,6 +104,7 @@ class RiderOrderRequestModel {
       requestId: _asInt(json['request_id']),
       orderId: _asInt(json['order_id']),
       restaurantId: _asInt(json['restaurant_id']),
+      restaurantName: _asString(json['restaurant_name']),
       pickupAddress: _asString(
         json['pickup_address'],
         fallback: 'Pickup address not available',
@@ -158,9 +161,9 @@ class ActiveDeliveryOrderModel {
 
   factory ActiveDeliveryOrderModel.fromJson(Map<String, dynamic> json) {
     return ActiveDeliveryOrderModel(
-      orderId: _asInt(json['order_id']),
+      orderId: _asInt(json['order_id'] ?? json['id']),
       deliveryStatus: _asString(
-        json['delivery_status'],
+        json['delivery_status'] ?? json['status'],
         fallback: 'rider_assigned',
       ),
       pickupAddress: _asString(
@@ -168,7 +171,7 @@ class ActiveDeliveryOrderModel {
         fallback: 'Pickup address not available',
       ),
       dropAddress: _asString(
-        json['drop_address'],
+        json['drop_address'] ?? json['delivery_address'],
         fallback: 'Drop address not available',
       ),
       pickupLatitude: _asDouble(json['pickup_latitude']),
@@ -179,8 +182,8 @@ class ActiveDeliveryOrderModel {
       customerPhone: json['customer_phone'] as String?,
       restaurantName: json['restaurant_name'] as String?,
       restaurantPhone: json['restaurant_phone'] as String?,
-      paymentMode: json['payment_mode'] as String?,
-      amount: json['amount'] == null ? null : _asDouble(json['amount']),
+      paymentMode: _asString(json['payment_mode'] ?? json['payment_method']),
+      amount: _activeOrderAmount(json),
       items: json['items'] as List<dynamic>?,
     );
   }
@@ -201,6 +204,20 @@ class ActiveDeliveryOrderModel {
         return DeliveryStage.assigned;
     }
   }
+}
+
+double? _activeOrderAmount(Map<String, dynamic> json) {
+  final explicit = json['amount'] ?? json['payout'] ?? json['total_payout'];
+  if (explicit != null) {
+    return _asDouble(explicit);
+  }
+  final componentTotal =
+      _asDouble(json['base_payout']) +
+      _asDouble(json['distance_payout']) +
+      _asDouble(json['waiting_charges']) +
+      _asDouble(json['surge_bonus']) +
+      _asDouble(json['tip_amount']);
+  return componentTotal > 0 ? componentTotal : null;
 }
 
 class DeliveryStatusHelper {

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -12,12 +13,16 @@ class RiderSocketService {
     required this.onDeliveryOrderRequest,
     required this.onOrderRequestExpired,
     required this.onOrderAssignedToOther,
+    required this.onRestaurantOwnedOrderAssigned,
+    required this.onConnectionChanged,
   });
 
   final String token;
   final Function(RiderOrderRequestModel request) onDeliveryOrderRequest;
   final Function(int requestId, int orderId) onOrderRequestExpired;
   final Function(int requestId, int orderId) onOrderAssignedToOther;
+  final Function(int orderId, int? restaurantId) onRestaurantOwnedOrderAssigned;
+  final ValueChanged<bool> onConnectionChanged;
 
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
@@ -25,7 +30,10 @@ class RiderSocketService {
   bool _shouldReconnect = true;
 
   void connect() {
-    if (_isConnected) return;
+    if (_isConnected || token.isEmpty) {
+      _debug('connect skipped tokenPresent=${token.isNotEmpty}');
+      return;
+    }
     _shouldReconnect = true;
     _connectInternal();
   }
@@ -36,23 +44,38 @@ class RiderSocketService {
         'token': token,
       });
       _channel = WebSocketChannel.connect(uri);
-      
+
+      _debug('connecting tokenPresent=${token.isNotEmpty}');
+      unawaited(
+        _channel!.ready.then((_) {
+          _setConnected(true);
+          _debug('connected');
+        }).catchError((error) {
+          _setConnected(false);
+          _debug('connection failed error=$error');
+          _scheduleReconnect();
+        }),
+      );
+
       _channel!.stream.listen(
         (message) {
-          _isConnected = true;
+          _setConnected(true);
           _handleMessage(message);
         },
         onDone: () {
-          _isConnected = false;
+          _debug('disconnected');
+          _setConnected(false);
           _scheduleReconnect();
         },
         onError: (error) {
-          _isConnected = false;
+          _debug('stream error=$error');
+          _setConnected(false);
           _scheduleReconnect();
         },
       );
     } catch (e) {
-      _isConnected = false;
+      _debug('connect error=$e');
+      _setConnected(false);
       _scheduleReconnect();
     }
   }
@@ -69,20 +92,33 @@ class RiderSocketService {
     try {
       final decoded = jsonDecode(message as String) as Map<String, dynamic>;
       final type = decoded['type'] as String?;
+      final data = _asMap(decoded['data']);
+      _debug('event type=${type ?? 'missing'}');
 
       if (type == 'DELIVERY_ORDER_REQUEST') {
-        onDeliveryOrderRequest(RiderOrderRequestModel.fromJson(decoded));
+        onDeliveryOrderRequest(RiderOrderRequestModel.fromJson(data));
       } else if (type == 'ORDER_REQUEST_EXPIRED') {
-        final requestId = decoded['request_id'] as int;
-        final orderId = decoded['order_id'] as int;
+        final requestId = _asInt(data['request_id'] ?? decoded['request_id']);
+        final orderId = _asInt(data['order_id'] ?? decoded['order_id']);
         onOrderRequestExpired(requestId, orderId);
       } else if (type == 'ORDER_ASSIGNED_TO_OTHER_RIDER') {
-        final requestId = decoded['request_id'] as int;
-        final orderId = decoded['order_id'] as int;
+        final requestId = _asInt(data['request_id'] ?? decoded['request_id']);
+        final orderId = _asInt(data['order_id'] ?? decoded['order_id']);
         onOrderAssignedToOther(requestId, orderId);
+      } else if (type == 'order_assigned') {
+        final orderId = _asInt(data['order_id'] ?? decoded['order_id']);
+        final restaurantId = _asIntOrNull(
+          data['restaurant_id'] ?? decoded['restaurant_id'],
+        );
+        final assignmentType = '${data['assignment_type'] ?? ''}'
+            .trim()
+            .toLowerCase();
+        if (orderId > 0 && assignmentType == 'restaurant_owned') {
+          onRestaurantOwnedOrderAssigned(orderId, restaurantId);
+        }
       }
     } catch (e) {
-      debugPrint('Error parsing websocket message: $e');
+      _debug('parse error=$e');
     }
   }
 
@@ -90,6 +126,46 @@ class RiderSocketService {
     _shouldReconnect = false;
     _reconnectTimer?.cancel();
     _channel?.sink.close();
-    _isConnected = false;
+    _setConnected(false);
+  }
+
+  void _setConnected(bool value) {
+    if (_isConnected == value) {
+      return;
+    }
+    _isConnected = value;
+    onConnectionChanged(value);
+  }
+
+  Map<String, dynamic> _asMap(Object? value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map((key, value) => MapEntry('$key', value));
+    }
+    return const <String, dynamic>{};
+  }
+
+  int _asInt(Object? value) => _asIntOrNull(value) ?? 0;
+
+  int? _asIntOrNull(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    if (value is String) {
+      return int.tryParse(value.trim());
+    }
+    return null;
+  }
+
+  void _debug(String message) {
+    assert(() {
+      debugPrint('[RiderSocket] $message');
+      return true;
+    }());
   }
 }

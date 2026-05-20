@@ -35,7 +35,7 @@ class RiderDeliveryApiService {
   Future<ApiEnvelope<List<RiderOrderRequestModel>>> getPendingOrderRequests() {
     return _client.request<List<RiderOrderRequestModel>>(
       'GET',
-      '/riders/order-requests',
+      '/api/v1/riders/order-requests',
       parser: (data) {
         return _extractList(data)
             .map(
@@ -46,18 +46,18 @@ class RiderDeliveryApiService {
     );
   }
 
-  Future<ApiEnvelope<ActiveDeliveryOrderModel>> acceptOrderRequest(
-    int requestId,
-  ) {
-    return _client.request<ActiveDeliveryOrderModel>(
+  Future<ApiEnvelope<Map<String, dynamic>>> acceptOrderRequest(int requestId) {
+    return _client.request<Map<String, dynamic>>(
       'POST',
-      '/riders/order-requests/$requestId/accept',
-      parser: (data) => ActiveDeliveryOrderModel.fromJson(_extractObject(data)),
+      '/api/v1/riders/order-requests/$requestId/accept',
+      parser: (data) => ApiClient.asMap(data),
     );
   }
 
   Future<ApiEnvelope<Map<String, dynamic>>> rejectOrderRequest(int requestId) {
-    return _client.postObject('/riders/order-requests/$requestId/reject');
+    return _client.postObject(
+      '/api/v1/riders/order-requests/$requestId/reject',
+    );
   }
 
   Future<ApiEnvelope<Map<String, dynamic>>> updateDeliveryStatus({
@@ -75,7 +75,7 @@ class RiderDeliveryApiService {
   ) {
     return _client.request<ActiveDeliveryOrderModel>(
       'GET',
-      '/riders/orders/$orderId/active',
+      '/api/v1/orders/active',
       parser: (data) => ActiveDeliveryOrderModel.fromJson(_extractObject(data)),
     );
   }

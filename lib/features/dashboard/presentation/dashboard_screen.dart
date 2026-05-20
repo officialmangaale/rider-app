@@ -223,6 +223,59 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 const SizedBox(height: AppSpacing.lg),
                 const RiderLocationStatusCard(),
               ],
+              if (riderDeliveryState.isOnline &&
+                  !riderDeliveryState.socketConnected &&
+                  riderDeliveryState.pollingFallbackActive) ...[
+                const SizedBox(height: AppSpacing.md),
+                GlassCard(
+                  accent: AppColors.sky,
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Row(
+                    children: [
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          'Reconnecting live orders. Backup polling is active.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (riderDeliveryState.requestErrorMessage != null) ...[
+                const SizedBox(height: AppSpacing.md),
+                GlassCard(
+                  accent: AppColors.warning,
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.sync_problem_rounded,
+                        color: AppColors.warning,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          riderDeliveryState.requestErrorMessage!,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => ref
+                            .read(riderDeliveryControllerProvider.notifier)
+                            .refreshPendingRequests(),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: AppSpacing.lg),
 
               // ── Metrics ──────────────────────────────────────

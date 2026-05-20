@@ -27,11 +27,9 @@ class ActiveDeliveryScreen extends ConsumerWidget {
       title: 'Active delivery',
       subtitle: 'Track and manage your current order.',
       onRefresh: () async {
-        if (deliveryState.activeOrderId != null) {
-          await ref
-              .read(riderDeliveryControllerProvider.notifier)
-              .fetchActiveOrder(deliveryState.activeOrderId!);
-        }
+        await ref
+            .read(riderDeliveryControllerProvider.notifier)
+            .refreshActiveOrder();
       },
       child: () {
         if (deliveryState.activeOrder == null) {

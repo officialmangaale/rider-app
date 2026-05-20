@@ -108,7 +108,11 @@ class _IncomingOrderRequestSheetState
           .read(riderDeliveryControllerProvider.notifier)
           .rejectRequest(widget.request.requestId);
     } catch (_) {
-      // Ignore errors on reject
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to reject order request')),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -183,9 +187,19 @@ class _IncomingOrderRequestSheetState
                       ),
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
-                        child: Text(
-                          widget.request.pickupAddress,
-                          style: Theme.of(context).textTheme.bodyMedium,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if ((widget.request.restaurantName ?? '').isNotEmpty)
+                              Text(
+                                widget.request.restaurantName!,
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                            Text(
+                              widget.request.pickupAddress,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ],
                         ),
                       ),
                     ],
