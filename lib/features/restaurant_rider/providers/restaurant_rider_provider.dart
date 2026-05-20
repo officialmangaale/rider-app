@@ -14,7 +14,17 @@ final activeOrdersProvider = FutureProvider.autoDispose<List<DeliveryOrder>>((
   ref,
 ) async {
   final api = ref.watch(riderBackendApiProvider);
+  final prefs = ref.watch(appPreferencesProvider);
   const endpoint = '/api/v1/orders/active';
+
+  if ((prefs.accessToken ?? '').isEmpty) {
+    _debugLog('$endpoint skipped authTokenPresent=no');
+    throw const ApiException(
+      message: 'Please sign in again to view active orders.',
+      statusCode: 401,
+      errorCode: 'AUTH_REQUIRED',
+    );
+  }
 
   try {
     final response = await api.orders.activeOrder();
@@ -43,7 +53,17 @@ final activeOrdersProvider = FutureProvider.autoDispose<List<DeliveryOrder>>((
 final deliveredOrdersProvider =
     FutureProvider.autoDispose<List<DeliveryRecord>>((ref) async {
       final api = ref.watch(riderBackendApiProvider);
+      final prefs = ref.watch(appPreferencesProvider);
       const endpoint = '/api/v1/orders/history?status=delivered';
+
+      if ((prefs.accessToken ?? '').isEmpty) {
+        _debugLog('$endpoint skipped authTokenPresent=no');
+        throw const ApiException(
+          message: 'Please sign in again to view delivered orders.',
+          statusCode: 401,
+          errorCode: 'AUTH_REQUIRED',
+        );
+      }
 
       try {
         final response = await api.orders.orderHistory(
@@ -75,7 +95,17 @@ final deliveredOrdersProvider =
 final linkedRestaurantsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
       final api = ref.watch(riderBackendApiProvider);
+      final prefs = ref.watch(appPreferencesProvider);
       const endpoint = '/api/v1/rider/profile restaurants';
+
+      if ((prefs.accessToken ?? '').isEmpty) {
+        _debugLog('$endpoint skipped authTokenPresent=no');
+        throw const ApiException(
+          message: 'Please sign in again to view your restaurant profile.',
+          statusCode: 401,
+          errorCode: 'AUTH_REQUIRED',
+        );
+      }
 
       try {
         final response = await api.rider.getProfile();

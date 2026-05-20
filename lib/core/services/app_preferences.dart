@@ -65,9 +65,7 @@ class AppPreferences implements ApiTokenStore {
   String? get refreshToken =>
       _preferences.getString(AppConstants.preferencesRefreshTokenKey);
 
-  bool get isAuthenticated =>
-      (_preferences.getBool(AppConstants.preferencesAuthKey) ?? false) ||
-      (accessToken?.isNotEmpty ?? false);
+  bool get isAuthenticated => accessToken?.isNotEmpty ?? false;
 
   String? get authRole => AppRoutes.normalizeRole(
     _preferences.getString(AppConstants.preferencesAuthRoleKey),
