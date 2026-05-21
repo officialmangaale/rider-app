@@ -186,7 +186,7 @@ class SessionController extends Notifier<SessionState> {
     required String source,
     String? fallbackRole,
   }) async {
-    _clearUserScopedState(disconnectRealtime: true);
+    _disconnectRealtimeForAuthTransition();
 
     final data = _authPayload(envelope);
     final parsedRawRole = AppRoutes.extractRawRole(data);
@@ -271,6 +271,10 @@ class SessionController extends Notifier<SessionState> {
     ref.invalidate(linkedRestaurantsProvider);
     ref.invalidate(riderSocketServiceProvider);
     ref.invalidate(riderLocationServiceProvider);
+  }
+
+  void _disconnectRealtimeForAuthTransition() {
+    ref.read(riderDeliveryControllerProvider.notifier).clearSession();
   }
 
   Map<String, dynamic> _authPayload(

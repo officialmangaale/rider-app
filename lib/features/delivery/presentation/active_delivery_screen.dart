@@ -43,6 +43,20 @@ class ActiveDeliveryScreen extends ConsumerWidget {
         }
 
         final order = deliveryState.activeOrder!;
+        final isHeadingToPickup =
+            order.deliveryStatus == 'rider_assigned' ||
+            order.deliveryStatus == 'rider_arrived_restaurant';
+        final callPhone =
+            (isHeadingToPickup ? order.restaurantPhone : order.customerPhone)
+                ?.trim();
+        final navigationLat = isHeadingToPickup
+            ? order.pickupLatitude
+            : order.dropLatitude;
+        final navigationLng = isHeadingToPickup
+            ? order.pickupLongitude
+            : order.dropLongitude;
+        final canCall = callPhone != null && callPhone.isNotEmpty;
+        final canNavigate = _isUsableCoordinate(navigationLat, navigationLng);
 
         return ListView(
           padding: const EdgeInsets.fromLTRB(
@@ -125,75 +139,35 @@ class ActiveDeliveryScreen extends ConsumerWidget {
                     subtitle: 'Contact, navigate, or advance stage.',
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SecondaryButton(
-                          label: 'Call',
-                          icon: Icons.call_rounded,
-                          onPressed: () async {
-                            final phone =
-                                (order.deliveryStatus == 'rider_assigned' ||
-                                    order.deliveryStatus ==
-                                        'rider_arrived_restaurant')
-                                ? order.restaurantPhone
-                                : order.customerPhone;
-                            if (phone != null && phone.isNotEmpty) {
-                              final uri = Uri.parse('tel:$phone');
-                              if (await canLaunchUrl(uri)) {
-                                await launchUrl(uri);
-                              } else {
-                                if (!context.mounted) return;
-                                showLuxurySnackBar(
-                                  context,
-                                  'Could not launch dialer for $phone',
-                                );
-                              }
-                            } else {
-                              showLuxurySnackBar(
+                  if (canCall || canNavigate) ...[
+                    Row(
+                      children: [
+                        if (canCall)
+                          Expanded(
+                            child: SecondaryButton(
+                              label: 'Call',
+                              icon: Icons.call_rounded,
+                              onPressed: () => _launchPhone(context, callPhone),
+                            ),
+                          ),
+                        if (canCall && canNavigate)
+                          const SizedBox(width: AppSpacing.md),
+                        if (canNavigate)
+                          Expanded(
+                            child: SecondaryButton(
+                              label: 'Navigate',
+                              icon: Icons.navigation_rounded,
+                              onPressed: () => _launchMaps(
                                 context,
-                                'Phone number not available',
-                              );
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: SecondaryButton(
-                          label: 'Navigate',
-                          icon: Icons.navigation_rounded,
-                          onPressed: () async {
-                            final lat =
-                                (order.deliveryStatus == 'rider_assigned' ||
-                                    order.deliveryStatus ==
-                                        'rider_arrived_restaurant')
-                                ? order.pickupLatitude
-                                : order.dropLatitude;
-                            final lng =
-                                (order.deliveryStatus == 'rider_assigned' ||
-                                    order.deliveryStatus ==
-                                        'rider_arrived_restaurant')
-                                ? order.pickupLongitude
-                                : order.dropLongitude;
-                            final url = Uri.parse(
-                              'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
-                            );
-                            if (await canLaunchUrl(url)) {
-                              await launchUrl(url);
-                            } else {
-                              if (!context.mounted) return;
-                              showLuxurySnackBar(
-                                context,
-                                'Could not open maps',
-                              );
-                            }
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.md),
+                                navigationLat,
+                                navigationLng,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
                   _AdvanceButton(order: order),
                 ],
               ),
@@ -207,6 +181,43 @@ class ActiveDeliveryScreen extends ConsumerWidget {
 }
 
 // ── Advance button ─────────────────────────────────────────────────────────
+
+bool _isUsableCoordinate(double latitude, double longitude) {
+  return latitude.isFinite &&
+      longitude.isFinite &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180 &&
+      latitude != 0 &&
+      longitude != 0;
+}
+
+Future<void> _launchPhone(BuildContext context, String phone) async {
+  final uri = Uri.parse('tel:$phone');
+  if (await canLaunchUrl(uri)) {
+    await launchUrl(uri);
+    return;
+  }
+  if (!context.mounted) return;
+  showLuxurySnackBar(context, 'Could not open phone dialer');
+}
+
+Future<void> _launchMaps(
+  BuildContext context,
+  double latitude,
+  double longitude,
+) async {
+  final url = Uri.parse(
+    'https://www.google.com/maps/search/?api=1&query=$latitude,$longitude',
+  );
+  if (await canLaunchUrl(url)) {
+    await launchUrl(url, mode: LaunchMode.externalApplication);
+    return;
+  }
+  if (!context.mounted) return;
+  showLuxurySnackBar(context, 'Could not open maps on this device');
+}
 
 class _AdvanceButton extends ConsumerStatefulWidget {
   const _AdvanceButton({required this.order});

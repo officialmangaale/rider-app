@@ -266,7 +266,19 @@ GoRouter buildAppRouter({
       GoRoute(
         path: '${AppRoutes.restaurantOrderBase}/:id',
         pageBuilder: (context, state) {
-          final order = state.extra as DeliveryOrder;
+          final order = state.extra;
+          if (order is! DeliveryOrder) {
+            return buildPage(
+              _RouteErrorScreen(
+                debugMessage: kDebugMode
+                    ? 'Order detail route requires a DeliveryOrder payload.'
+                    : null,
+                resolveHomeRoute: () =>
+                    AppRoutes.resolveEntryRoute(readAuthSnapshot()),
+              ),
+              state,
+            );
+          }
           return buildPage(
             OrderDetailScreen(
               orderId: state.pathParameters['id']!,

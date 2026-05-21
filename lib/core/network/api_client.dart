@@ -393,11 +393,11 @@ class ApiClient {
     if (body != null) {
       headers['Content-Type'] = 'application/json';
     }
-    if (requiresAuth) {
-      final token = tokenStore.accessToken;
-      if (token != null && token.isNotEmpty) {
-        headers['Authorization'] = 'Bearer $token';
-      }
+    final requestToken = requiresAuth ? tokenStore.accessToken : null;
+    final hasAuthorizationHeader =
+        requestToken != null && requestToken.isNotEmpty;
+    if (hasAuthorizationHeader) {
+      headers['Authorization'] = 'Bearer $requestToken';
     }
 
     RawHttpResponse raw;
@@ -463,7 +463,10 @@ class ApiClient {
     final decoded = _decodeBody(raw.body);
 
     // Handle 401 with token refresh (single attempt).
-    if (requiresAuth && raw.statusCode == 401 && !hasRetried) {
+    if (requiresAuth &&
+        hasAuthorizationHeader &&
+        raw.statusCode == 401 &&
+        !hasRetried) {
       final refreshed = await _refreshTokens();
       if (refreshed) {
         return _requestWithRetry<T>(
