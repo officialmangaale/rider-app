@@ -1,7 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-import '../constants/app_constants.dart';
-
 class RouteAuthSnapshot {
   const RouteAuthSnapshot({
     required this.isAuthenticated,
@@ -22,6 +20,7 @@ class AppRoutes {
   static const onboarding = '/onboarding';
   static const login = '/login';
   static const signup = '/signup';
+  static const modeGate = '/mode-gate';
 
   static const home = '/home';
   static const requests = '/requests';
@@ -31,6 +30,7 @@ class AppRoutes {
 
   static const activeOrders = '/active-orders';
   static const deliveredOrders = '/delivered-orders';
+  static const restaurantProfile = '/restaurant-profile';
 
   static const navigation = '/navigation';
   static const history = '/history';
@@ -118,7 +118,7 @@ class AppRoutes {
     if (!isSupportedRiderRole(role)) {
       return login;
     }
-    return AppConstants.restaurantOwnedRiderMode ? activeOrders : home;
+    return modeGate;
   }
 
   static String resolveEntryRoute(RouteAuthSnapshot auth) {
@@ -133,7 +133,7 @@ class AppRoutes {
 
   static bool isAuthPath(String path) => path == login || path == signup;
 
-  static bool isEntryAlias(String path) => path == root || path == home;
+  static bool isEntryAlias(String path) => path == root;
 
   static bool isPublicPath(String path) {
     return path == root ||
@@ -152,18 +152,15 @@ class AppRoutes {
       onboarding,
       login,
       signup,
-      if (AppConstants.restaurantOwnedRiderMode) ...[
-        home,
-        activeOrders,
-        deliveredOrders,
-        profile,
-      ] else ...[
-        home,
-        requests,
-        delivery,
-        earnings,
-        profile,
-      ],
+      modeGate,
+      home,
+      requests,
+      delivery,
+      earnings,
+      profile,
+      activeOrders,
+      deliveredOrders,
+      restaurantProfile,
       navigation,
       history,
       '$history/:id',

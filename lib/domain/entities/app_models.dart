@@ -30,6 +30,13 @@ String _asString(Object? value, {String fallback = ''}) {
   return present == null ? fallback : '$present'.trim();
 }
 
+String _asScalarString(Object? value) {
+  if (value is Map || value is Iterable) {
+    return '';
+  }
+  return _asString(value);
+}
+
 int _asInt(Object? value, {int fallback = 0}) {
   if (value is int) {
     return value;
@@ -51,6 +58,16 @@ double _asDouble(Object? value, {double fallback = 0}) {
     return double.tryParse(value.trim()) ?? fallback;
   }
   return fallback;
+}
+
+DateTime _asDateTime(Object? value, {DateTime? fallback}) {
+  if (value is DateTime) {
+    return value;
+  }
+  if (value is String) {
+    return DateTime.tryParse(value.trim()) ?? fallback ?? DateTime.now();
+  }
+  return fallback ?? DateTime.now();
 }
 
 String _joinName(Map<String, dynamic> user) {
@@ -118,9 +135,11 @@ DeliveryStage deliveryStageFromJson(String value) =>
     switch (_normalizeEnumValue(value)) {
       'accepted' => DeliveryStage.accepted,
       'reached_restaurant' => DeliveryStage.reachedRestaurant,
+      'rider_arrived_restaurant' => DeliveryStage.reachedRestaurant,
       'pickup_verified' => DeliveryStage.reachedRestaurant,
       'picked_up' => DeliveryStage.pickedUp,
       'on_the_way' => DeliveryStage.onTheWay,
+      'out_for_delivery' => DeliveryStage.onTheWay,
       'reached_customer' => DeliveryStage.reachedCustomer,
       'delivery_verified' => DeliveryStage.reachedCustomer,
       'delivered' => DeliveryStage.delivered,
@@ -357,6 +376,7 @@ class DeliveryOrder {
   const DeliveryOrder({
     required this.id,
     required this.assignmentId,
+    this.deliveryOrderId,
     required this.restaurantName,
     required this.customerName,
     required this.pickupAddress,
@@ -385,10 +405,12 @@ class DeliveryOrder {
     required this.createdAt,
     required this.countdownSeconds,
     required this.isMultiOrder,
+    this.assignmentType = 'restaurant_owned',
   });
 
   final String id;
   final String? assignmentId;
+  final int? deliveryOrderId;
   final String restaurantName;
   final String customerName;
   final String pickupAddress;
@@ -417,11 +439,23 @@ class DeliveryOrder {
   final DateTime createdAt;
   final int countdownSeconds;
   final bool isMultiOrder;
+  final String assignmentType;
+
+  bool get isRestaurantOwned {
+    switch (assignmentType.trim().toLowerCase()) {
+      case 'restaurant_owned':
+      case 'restaurant_own_rider':
+        return true;
+      default:
+        return false;
+    }
+  }
 
   factory DeliveryOrder.fromJson(Map<String, dynamic> json) {
     return DeliveryOrder(
       id: json['id'] as String,
       assignmentId: json['assignmentId'] as String?,
+      deliveryOrderId: json['deliveryOrderId'] as int?,
       restaurantName: json['restaurantName'] as String,
       customerName: json['customerName'] as String,
       pickupAddress: json['pickupAddress'] as String,
@@ -452,12 +486,14 @@ class DeliveryOrder {
       createdAt: DateTime.parse(json['createdAt'] as String),
       countdownSeconds: json['countdownSeconds'] as int,
       isMultiOrder: json['isMultiOrder'] as bool? ?? false,
+      assignmentType: json['assignmentType'] as String? ?? 'restaurant_owned',
     );
   }
 
   DeliveryOrder copyWith({
     String? id,
     String? assignmentId,
+    int? deliveryOrderId,
     String? restaurantName,
     String? customerName,
     String? pickupAddress,
@@ -486,10 +522,12 @@ class DeliveryOrder {
     DateTime? createdAt,
     int? countdownSeconds,
     bool? isMultiOrder,
+    String? assignmentType,
   }) {
     return DeliveryOrder(
       id: id ?? this.id,
       assignmentId: assignmentId ?? this.assignmentId,
+      deliveryOrderId: deliveryOrderId ?? this.deliveryOrderId,
       restaurantName: restaurantName ?? this.restaurantName,
       customerName: customerName ?? this.customerName,
       pickupAddress: pickupAddress ?? this.pickupAddress,
@@ -518,6 +556,7 @@ class DeliveryOrder {
       createdAt: createdAt ?? this.createdAt,
       countdownSeconds: countdownSeconds ?? this.countdownSeconds,
       isMultiOrder: isMultiOrder ?? this.isMultiOrder,
+      assignmentType: assignmentType ?? this.assignmentType,
     );
   }
 }
@@ -530,8 +569,18 @@ class EarningsPoint {
 
   factory EarningsPoint.fromJson(Map<String, dynamic> json) {
     return EarningsPoint(
-      label: json['label'] as String,
-      amount: (json['amount'] as num).toDouble(),
+      label: _asString(
+        _firstPresent([json['label'], json['date'], json['day']]),
+        fallback: 'Earnings',
+      ),
+      amount: _asDouble(
+        _firstPresent([
+          json['amount'],
+          json['net_earning'],
+          json['total_earnings'],
+          json['earnings'],
+        ]),
+      ),
     );
   }
 }
@@ -544,6 +593,7 @@ class EarningsReport {
     required this.incentives,
     required this.tips,
     required this.bonus,
+    this.deliveryFees = 0,
     required this.trend,
     required this.payoutHistory,
   });
@@ -554,23 +604,63 @@ class EarningsReport {
   final double incentives;
   final double tips;
   final double bonus;
+  final double deliveryFees;
   final List<EarningsPoint> trend;
   final List<EarningsPoint> payoutHistory;
 
   factory EarningsReport.fromJson(Map<String, dynamic> json) {
+    final totalEarnings = _asDouble(
+      _firstPresent([json['total_earnings'], json['totalEarnings']]),
+    );
     return EarningsReport(
-      daily: (json['daily'] as num).toDouble(),
-      weekly: (json['weekly'] as num).toDouble(),
-      monthly: (json['monthly'] as num).toDouble(),
-      incentives: (json['incentives'] as num).toDouble(),
-      tips: (json['tips'] as num).toDouble(),
-      bonus: (json['bonus'] as num).toDouble(),
-      trend: (json['trend'] as List<dynamic>)
-          .map((item) => EarningsPoint.fromJson(item as Map<String, dynamic>))
-          .toList(),
-      payoutHistory: (json['payoutHistory'] as List<dynamic>)
-          .map((item) => EarningsPoint.fromJson(item as Map<String, dynamic>))
-          .toList(),
+      daily: _asDouble(
+        _firstPresent([json['daily'], json['today_earnings'], totalEarnings]),
+      ),
+      weekly: _asDouble(
+        _firstPresent([
+          json['weekly'],
+          json['weekly_earnings'],
+          json['week_earnings'],
+          totalEarnings,
+        ]),
+      ),
+      monthly: _asDouble(
+        _firstPresent([
+          json['monthly'],
+          json['monthly_earnings'],
+          json['month_earnings'],
+          totalEarnings,
+        ]),
+      ),
+      incentives: _asDouble(
+        _firstPresent([
+          json['incentives'],
+          json['incentive_earnings'],
+          json['incentive_amount'],
+        ]),
+      ),
+      tips: _asDouble(
+        _firstPresent([json['tips'], json['tip_earnings'], json['tip_amount']]),
+      ),
+      bonus: _asDouble(
+        _firstPresent([
+          json['bonus'],
+          json['bonus_earnings'],
+          json['bonus_amount'],
+        ]),
+      ),
+      deliveryFees: _asDouble(
+        _firstPresent([
+          json['deliveryFees'],
+          json['delivery_fees'],
+          json['delivery_earnings'],
+          json['delivery_fee_earnings'],
+        ]),
+      ),
+      trend: _earningsPointsFromJson(json['trend']),
+      payoutHistory: _earningsPointsFromJson(
+        _firstPresent([json['payoutHistory'], json['payout_history']]),
+      ),
     );
   }
 
@@ -581,6 +671,7 @@ class EarningsReport {
     double? incentives,
     double? tips,
     double? bonus,
+    double? deliveryFees,
     List<EarningsPoint>? trend,
     List<EarningsPoint>? payoutHistory,
   }) {
@@ -591,10 +682,22 @@ class EarningsReport {
       incentives: incentives ?? this.incentives,
       tips: tips ?? this.tips,
       bonus: bonus ?? this.bonus,
+      deliveryFees: deliveryFees ?? this.deliveryFees,
       trend: trend ?? this.trend,
       payoutHistory: payoutHistory ?? this.payoutHistory,
     );
   }
+}
+
+List<EarningsPoint> _earningsPointsFromJson(Object? value) {
+  if (value is! List) {
+    return const <EarningsPoint>[];
+  }
+  return value
+      .map(_asMap)
+      .where((item) => item.isNotEmpty)
+      .map(EarningsPoint.fromJson)
+      .toList(growable: false);
 }
 
 class DeliveryRecord {
@@ -631,23 +734,129 @@ class DeliveryRecord {
   final int durationMinutes;
 
   factory DeliveryRecord.fromJson(Map<String, dynamic> json) {
+    final order = _asMap(json['order']);
+    final restaurant = _asMap(
+      _firstPresent([order['restaurant'], json['restaurant']]),
+    );
+    final customer = _asMap(
+      _firstPresent([order['customer'], json['customer']]),
+    );
+    final pickup = _asMap(
+      _firstPresent([order['pickup_address'], json['pickup_address']]),
+    );
+    final deliveryAddress = _asMap(
+      _firstPresent([order['delivery_address'], json['delivery_address']]),
+    );
+    final source = <String, dynamic>{...json, ...order};
+    final completedAt = _asDateTime(
+      _firstPresent([
+        source['completedAt'],
+        source['completed_at'],
+        source['actual_delivery_time'],
+        source['delivered_at'],
+        source['created_at'],
+        source['updated_at'],
+      ]),
+    );
+
     return DeliveryRecord(
-      id: json['id'] as String,
-      restaurantName: json['restaurantName'] as String,
-      customerName: json['customerName'] as String,
-      pickupAddress: json['pickupAddress'] as String,
-      dropAddress: json['dropAddress'] as String,
-      distanceKm: (json['distanceKm'] as num).toDouble(),
-      earnings: (json['earnings'] as num).toDouble(),
-      paymentMethod: json['paymentMethod'] as String,
-      itemsCount: json['itemsCount'] as int,
-      outcome: deliveryOutcomeFromJson(json['outcome'] as String),
-      completedAt: DateTime.parse(json['completedAt'] as String),
-      notes: json['notes'] as String,
-      timeline: (json['timeline'] as List<dynamic>)
-          .map((item) => item as String)
-          .toList(),
-      durationMinutes: json['durationMinutes'] as int,
+      id: _asString(
+        _firstPresent([
+          source['id'],
+          source['order_id'],
+          source['order_number'],
+          json['delivery_order_id'],
+        ]),
+        fallback: 'history-${completedAt.microsecondsSinceEpoch}',
+      ),
+      restaurantName: _asString(
+        _firstPresent([
+          source['restaurantName'],
+          source['restaurant_name'],
+          restaurant['name'],
+        ]),
+        fallback: 'Restaurant',
+      ),
+      customerName: _asString(
+        _firstPresent([
+          source['customerName'],
+          source['customer_name'],
+          customer['name'],
+          customer['full_name'],
+        ]),
+        fallback: 'Customer',
+      ),
+      pickupAddress: _asString(
+        _firstPresent([
+          source['pickupAddress'],
+          pickup['address'],
+          pickup['address_line1'],
+          _asScalarString(source['pickup_address']),
+          source['restaurant_address'],
+          restaurant['address'],
+        ]),
+        fallback: 'Pickup address not available',
+      ),
+      dropAddress: _asString(
+        _firstPresent([
+          source['dropAddress'],
+          _asScalarString(source['drop_address']),
+          deliveryAddress['address'],
+          deliveryAddress['address_line1'],
+          _asScalarString(source['delivery_address']),
+          customer['address'],
+        ]),
+        fallback: 'Drop address not available',
+      ),
+      distanceKm: _asDouble(
+        _firstPresent([source['distanceKm'], source['distance_km']]),
+      ),
+      earnings: _asDouble(
+        _firstPresent([
+          source['earnings'],
+          source['net_earning'],
+          source['amount'],
+          source['amount_to_collect'],
+          source['payout'],
+          source['base_payout'],
+          source['delivery_fee'],
+          source['total_amount'],
+        ]),
+      ),
+      paymentMethod: _asString(
+        _firstPresent([
+          source['paymentMethod'],
+          source['payment_method'],
+          source['payment_mode'],
+        ]),
+        fallback: 'Payment not available',
+      ),
+      itemsCount: _asInt(
+        _firstPresent([
+          source['itemsCount'],
+          source['items_count'],
+          source['item_count'],
+        ]),
+      ),
+      outcome: deliveryOutcomeFromJson(
+        _asString(
+          _firstPresent([
+            source['outcome'],
+            source['delivery_status'],
+            source['order_status'],
+            source['status'],
+          ]),
+          fallback: 'completed',
+        ),
+      ),
+      completedAt: completedAt,
+      notes: _asString(
+        _firstPresent([source['notes'], source['description'], source['body']]),
+      ),
+      timeline: _asTimeline(source['timeline']),
+      durationMinutes: _asInt(
+        _firstPresent([source['durationMinutes'], source['duration_minutes']]),
+      ),
     );
   }
 
@@ -681,6 +890,23 @@ class DeliveryRecord {
       durationMinutes: order.etaMinutes + 8,
     );
   }
+}
+
+List<String> _asTimeline(Object? value) {
+  if (value is! List) {
+    return const <String>[];
+  }
+  return value
+      .map((item) {
+        if (item is Map) {
+          return _asString(
+            _firstPresent([item['label'], item['status'], item['title']]),
+          );
+        }
+        return _asString(item);
+      })
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
 }
 
 class AppNotificationItem {
@@ -747,11 +973,23 @@ class PayoutTransaction {
 
   factory PayoutTransaction.fromJson(Map<String, dynamic> json) {
     return PayoutTransaction(
-      id: json['id'] as String,
-      title: json['title'] as String,
-      amount: (json['amount'] as num).toDouble(),
-      status: json['status'] as String,
-      createdAt: DateTime.parse(json['createdAt'] as String),
+      id: _asString(
+        _firstPresent([json['id'], json['transaction_id'], json['payout_id']]),
+        fallback: 'payout-${DateTime.now().microsecondsSinceEpoch}',
+      ),
+      title: _asString(
+        _firstPresent([json['title'], json['description'], json['type']]),
+        fallback: 'Payout activity',
+      ),
+      amount: _asDouble(json['amount']),
+      status: _asString(json['status'], fallback: 'POSTED'),
+      createdAt: _asDateTime(
+        _firstPresent([
+          json['createdAt'],
+          json['created_at'],
+          json['requested_at'],
+        ]),
+      ),
     );
   }
 }
@@ -773,15 +1011,19 @@ class PayoutSummary {
 
   factory PayoutSummary.fromJson(Map<String, dynamic> json) {
     return PayoutSummary(
-      walletBalance: (json['walletBalance'] as num).toDouble(),
-      pendingPayout: (json['pendingPayout'] as num).toDouble(),
-      settledPayout: (json['settledPayout'] as num).toDouble(),
-      bankAccountMasked: json['bankAccountMasked'] as String,
-      transactions: (json['transactions'] as List<dynamic>)
-          .map(
-            (item) => PayoutTransaction.fromJson(item as Map<String, dynamic>),
-          )
-          .toList(),
+      walletBalance: _asDouble(
+        _firstPresent([json['walletBalance'], json['wallet_balance']]),
+      ),
+      pendingPayout: _asDouble(
+        _firstPresent([json['pendingPayout'], json['pending_payout']]),
+      ),
+      settledPayout: _asDouble(
+        _firstPresent([json['settledPayout'], json['settled_payout']]),
+      ),
+      bankAccountMasked: _asString(
+        _firstPresent([json['bankAccountMasked'], json['bank_account_masked']]),
+      ),
+      transactions: _payoutTransactionsFromJson(json['transactions']),
     );
   }
 
@@ -800,6 +1042,17 @@ class PayoutSummary {
       transactions: transactions ?? this.transactions,
     );
   }
+}
+
+List<PayoutTransaction> _payoutTransactionsFromJson(Object? value) {
+  if (value is! List) {
+    return const <PayoutTransaction>[];
+  }
+  return value
+      .map(_asMap)
+      .where((item) => item.isNotEmpty)
+      .map(PayoutTransaction.fromJson)
+      .toList(growable: false);
 }
 
 class RiderReview {

@@ -414,6 +414,37 @@ class DeliveryApi {
   const DeliveryApi(this._client);
   final ApiClient _client;
 
+  Future<ApiEnvelope<Map<String, dynamic>>> riderOrders({
+    Map<String, dynamic>? queryParameters,
+  }) {
+    return _client.request<Map<String, dynamic>>(
+      'GET',
+      '/api/v1/riders/orders',
+      queryParameters: queryParameters,
+      parser: OrdersApi._mapOrItems,
+    );
+  }
+
+  Future<ApiEnvelope<Map<String, dynamic>>> riderOrderDetail(String orderId) {
+    return _client.getObject('/api/v1/riders/orders/$orderId');
+  }
+
+  Future<ApiEnvelope<Map<String, dynamic>>> updateRiderOrderStatus(
+    String orderId, {
+    required String deliveryStatus,
+    bool? paymentCollected,
+    String? notes,
+  }) {
+    return _client.postObject(
+      '/api/v1/riders/orders/$orderId/status',
+      body: {
+        'delivery_status': deliveryStatus,
+        if (paymentCollected != null) 'payment_collected': paymentCollected,
+        if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+      },
+    );
+  }
+
   Future<ApiEnvelope<Map<String, dynamic>>> arrivedAtRestaurant(
     String orderId,
   ) {
@@ -430,8 +461,18 @@ class DeliveryApi {
     return _client.postObject('/api/v1/delivery/$orderId/arrived-at-customer');
   }
 
-  Future<ApiEnvelope<Map<String, dynamic>>> delivered(String orderId) {
-    return _client.postObject('/api/v1/delivery/$orderId/delivered');
+  Future<ApiEnvelope<Map<String, dynamic>>> delivered(
+    String orderId, {
+    bool? paymentCollected,
+    String? notes,
+  }) {
+    return _client.postObject(
+      '/api/v1/delivery/$orderId/delivered',
+      body: {
+        if (paymentCollected != null) 'payment_collected': paymentCollected,
+        if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+      },
+    );
   }
 
   Future<ApiEnvelope<Map<String, dynamic>>> cancel(

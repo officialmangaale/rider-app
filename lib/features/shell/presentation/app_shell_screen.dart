@@ -1,27 +1,45 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/constants/app_constants.dart';
 import '../../../shared/widgets/navigation_widgets.dart';
 
+enum RiderShellMode { platform, restaurantOwned }
+
 class AppShellScreen extends StatelessWidget {
-  const AppShellScreen({super.key, required this.navigationShell});
+  const AppShellScreen({
+    super.key,
+    required this.navigationShell,
+    required this.mode,
+  });
 
   final StatefulNavigationShell navigationShell;
+  final RiderShellMode mode;
 
   @override
   Widget build(BuildContext context) {
-    final items = AppConstants.restaurantOwnedRiderMode
+    final items = mode == RiderShellMode.restaurantOwned
         ? const [
-            PremiumBottomNavItem(label: 'Active Orders', icon: Icons.motorcycle_rounded),
-            PremiumBottomNavItem(label: 'Delivered', icon: Icons.check_circle_outline_rounded),
+            PremiumBottomNavItem(
+              label: 'Active Orders',
+              icon: Icons.motorcycle_rounded,
+            ),
+            PremiumBottomNavItem(
+              label: 'Delivered',
+              icon: Icons.check_circle_outline_rounded,
+            ),
             PremiumBottomNavItem(label: 'Profile', icon: Icons.person_rounded),
           ]
         : const [
-            PremiumBottomNavItem(label: 'Home', icon: Icons.space_dashboard_rounded),
+            PremiumBottomNavItem(
+              label: 'Home',
+              icon: Icons.space_dashboard_rounded,
+            ),
             PremiumBottomNavItem(label: 'Requests', icon: Icons.bolt_rounded),
             PremiumBottomNavItem(label: 'Delivery', icon: Icons.route_rounded),
-            PremiumBottomNavItem(label: 'Earnings', icon: Icons.bar_chart_rounded),
+            PremiumBottomNavItem(
+              label: 'Earnings',
+              icon: Icons.bar_chart_rounded,
+            ),
             PremiumBottomNavItem(label: 'Profile', icon: Icons.person_rounded),
           ];
 

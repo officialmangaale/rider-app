@@ -149,18 +149,22 @@ class EmptyStateCard extends StatelessWidget {
     super.key,
     required this.icon,
     required this.title,
+    this.emoji,
     this.message,
     this.subtitle,
     this.action,
     this.accent = AppColors.gold,
+    this.animateVisual = false,
   });
 
   final IconData icon;
   final String title;
+  final String? emoji;
   final String? message;
   final String? subtitle;
   final Widget? action;
   final Color accent;
+  final bool animateVisual;
 
   String get _displayMessage => message ?? subtitle ?? '';
 
@@ -171,21 +175,11 @@ class EmptyStateCard extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: accent.withValues(alpha: 0.12),
-              boxShadow: [
-                BoxShadow(
-                  blurRadius: 20,
-                  offset: const Offset(0, 12),
-                  color: accent.withValues(alpha: 0.08),
-                ),
-              ],
-            ),
-            child: Icon(icon, color: accent, size: 32),
+          _EmptyStateVisual(
+            icon: icon,
+            emoji: emoji,
+            accent: accent,
+            animate: animateVisual,
           ),
           const SizedBox(height: AppSpacing.xl),
           Text(
@@ -193,12 +187,16 @@ class EmptyStateCard extends StatelessWidget {
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.headlineSmall,
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            _displayMessage,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.5),
-          ),
+          if (_displayMessage.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              _displayMessage,
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(height: 1.5),
+            ),
+          ],
           if (action != null) ...[
             const SizedBox(height: AppSpacing.xl),
             action!,
@@ -209,3 +207,89 @@ class EmptyStateCard extends StatelessWidget {
   }
 }
 
+class _EmptyStateVisual extends StatefulWidget {
+  const _EmptyStateVisual({
+    required this.icon,
+    required this.emoji,
+    required this.accent,
+    required this.animate,
+  });
+
+  final IconData icon;
+  final String? emoji;
+  final Color accent;
+  final bool animate;
+
+  @override
+  State<_EmptyStateVisual> createState() => _EmptyStateVisualState();
+}
+
+class _EmptyStateVisualState extends State<_EmptyStateVisual>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+    _scale = Tween<double>(begin: 0.96, end: 1.04).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOutCubic),
+    );
+    if (widget.animate) {
+      _controller.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _EmptyStateVisual oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.animate != widget.animate) {
+      if (widget.animate) {
+        _controller.repeat(reverse: true);
+      } else {
+        _controller.stop();
+        _controller.value = 0;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final visual = Container(
+      width: 80,
+      height: 80,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: widget.accent.withValues(alpha: 0.12),
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 20,
+            offset: const Offset(0, 12),
+            color: widget.accent.withValues(alpha: 0.08),
+          ),
+        ],
+      ),
+      child: Center(
+        child: widget.emoji == null
+            ? Icon(widget.icon, color: widget.accent, size: 32)
+            : Text(widget.emoji!, style: const TextStyle(fontSize: 34)),
+      ),
+    );
+
+    if (!widget.animate) {
+      return visual;
+    }
+
+    return ScaleTransition(scale: _scale, child: visual);
+  }
+}

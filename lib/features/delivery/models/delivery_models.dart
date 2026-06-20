@@ -127,6 +127,7 @@ class RiderOrderRequestModel {
 class ActiveDeliveryOrderModel {
   const ActiveDeliveryOrderModel({
     required this.orderId,
+    this.deliveryOrderId,
     required this.deliveryStatus,
     required this.pickupAddress,
     required this.dropAddress,
@@ -141,9 +142,12 @@ class ActiveDeliveryOrderModel {
     this.paymentMode,
     this.amount,
     this.items,
+    this.assignmentType = 'platform',
+    this.restaurantOwned = false,
   });
 
   final int orderId;
+  final int? deliveryOrderId;
   final String deliveryStatus;
   final String pickupAddress;
   final String dropAddress;
@@ -158,10 +162,23 @@ class ActiveDeliveryOrderModel {
   final String? paymentMode;
   final double? amount;
   final List<dynamic>? items;
+  final String assignmentType;
+  final bool restaurantOwned;
+
+  bool get isRestaurantOwned {
+    return restaurantOwned ||
+        _isRestaurantOwnedAssignmentType(assignmentType);
+  }
+
+  bool get requiresCashCollection {
+    final normalized = (paymentMode ?? '').trim().toLowerCase();
+    return normalized == 'cash' || normalized == 'cod';
+  }
 
   factory ActiveDeliveryOrderModel.fromJson(Map<String, dynamic> json) {
     return ActiveDeliveryOrderModel(
       orderId: _asInt(json['order_id'] ?? json['id']),
+      deliveryOrderId: _asIntOrNull(json['delivery_order_id']),
       deliveryStatus: _asString(
         json['delivery_status'] ?? json['status'],
         fallback: 'rider_assigned',
@@ -185,11 +202,15 @@ class ActiveDeliveryOrderModel {
       paymentMode: _asString(json['payment_mode'] ?? json['payment_method']),
       amount: _activeOrderAmount(json),
       items: json['items'] as List<dynamic>?,
+      assignmentType: _asString(json['assignment_type'], fallback: 'platform'),
+      restaurantOwned:
+          _asBool(json['restaurant_owned']) ??
+          _isRestaurantOwnedAssignmentType(_asString(json['assignment_type'])),
     );
   }
 
   DeliveryStage get stage {
-    switch (deliveryStatus) {
+    switch (deliveryStatus.trim().toLowerCase()) {
       case 'rider_assigned':
         return DeliveryStage.assigned;
       case 'rider_arrived_restaurant':
@@ -197,6 +218,7 @@ class ActiveDeliveryOrderModel {
       case 'picked_up':
         return DeliveryStage.pickedUp;
       case 'on_the_way':
+      case 'out_for_delivery':
         return DeliveryStage.onTheWay;
       case 'delivered':
         return DeliveryStage.delivered;
@@ -204,6 +226,48 @@ class ActiveDeliveryOrderModel {
         return DeliveryStage.assigned;
     }
   }
+}
+
+bool _isRestaurantOwnedAssignmentType(String value) {
+  switch (value.trim().toLowerCase()) {
+    case 'restaurant_owned':
+    case 'restaurant_own_rider':
+      return true;
+    default:
+      return false;
+  }
+}
+
+int? _asIntOrNull(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value.trim());
+  }
+  return null;
+}
+
+bool? _asBool(Object? value) {
+  if (value is bool) {
+    return value;
+  }
+  if (value is num) {
+    return value != 0;
+  }
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1' || normalized == 'yes') {
+      return true;
+    }
+    if (normalized == 'false' || normalized == '0' || normalized == 'no') {
+      return false;
+    }
+  }
+  return null;
 }
 
 double? _activeOrderAmount(Map<String, dynamic> json) {
@@ -222,7 +286,7 @@ double? _activeOrderAmount(Map<String, dynamic> json) {
 
 class DeliveryStatusHelper {
   static String getLabel(String status) {
-    switch (status) {
+    switch (status.trim().toLowerCase()) {
       case 'rider_assigned':
         return 'Order assigned';
       case 'rider_arrived_restaurant':
@@ -230,6 +294,7 @@ class DeliveryStatusHelper {
       case 'picked_up':
         return 'Picked up';
       case 'on_the_way':
+      case 'out_for_delivery':
         return 'On the way';
       case 'delivered':
         return 'Delivered';

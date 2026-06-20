@@ -2,12 +2,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../data/services/rider_backend_api.dart';
 import '../../../domain/entities/app_models.dart';
 import '../../../presentation/providers/core_providers.dart';
 
 // ---------------------------------------------------------------------------
 // Active orders provider
-// GET /api/v1/orders/active
+// GET /api/v1/riders/orders
 // ---------------------------------------------------------------------------
 
 final activeOrdersProvider = FutureProvider.autoDispose<List<DeliveryOrder>>((
@@ -15,7 +16,7 @@ final activeOrdersProvider = FutureProvider.autoDispose<List<DeliveryOrder>>((
 ) async {
   final api = ref.watch(riderBackendApiProvider);
   final prefs = ref.watch(appPreferencesProvider);
-  const endpoint = '/api/v1/orders/active';
+  const endpoint = '/api/v1/riders/orders';
 
   if ((prefs.accessToken ?? '').isEmpty) {
     _debugLog('$endpoint skipped authTokenPresent=no');
@@ -27,9 +28,64 @@ final activeOrdersProvider = FutureProvider.autoDispose<List<DeliveryOrder>>((
   }
 
   try {
-    final response = await api.orders.activeOrder();
-    final order = _deliveryOrderFromPayload(response.data);
-    final orders = order == null ? const <DeliveryOrder>[] : [order];
+    final response = await api.delivery.riderOrders();
+    final items = _extractList(response.data);
+    final orders = _mapList(items, _deliveryOrderFromPayload)
+        .where((order) => order.status != DeliveryStage.delivered)
+        .toList(growable: false);
+    if (orders.isEmpty) {
+      final fallback = await _legacyActiveOrder(api);
+      if (fallback != null) {
+        return [fallback];
+      }
+    }
+    _debugLog(
+      '$endpoint status=${response.statusCode ?? 'unknown'} count=${orders.length} '
+      'statuses=${orders.map((order) => order.status.name).join(',')}',
+    );
+    return orders;
+  } on ApiException catch (error) {
+    _debugLog(
+      '$endpoint status=${error.statusCode ?? 'unknown'} error=${error.errorCode ?? error.message}',
+    );
+    if (error.statusCode == 404) {
+      final fallback = await _legacyActiveOrder(api);
+      return fallback == null ? const <DeliveryOrder>[] : [fallback];
+    }
+    rethrow;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Delivered orders provider
+// GET /api/v1/riders/orders?status=delivered
+// ---------------------------------------------------------------------------
+
+final deliveredOrdersProvider = FutureProvider.autoDispose<List<DeliveryRecord>>((
+  ref,
+) async {
+  final api = ref.watch(riderBackendApiProvider);
+  final prefs = ref.watch(appPreferencesProvider);
+  const endpoint = '/api/v1/riders/orders?status=delivered';
+
+  if ((prefs.accessToken ?? '').isEmpty) {
+    _debugLog('$endpoint skipped authTokenPresent=no');
+    throw const ApiException(
+      message: 'Please sign in again to view delivered orders.',
+      statusCode: 401,
+      errorCode: 'AUTH_REQUIRED',
+    );
+  }
+
+  try {
+    final response = await api.delivery.riderOrders(
+      queryParameters: const {'status': 'delivered'},
+    );
+    final items = _extractList(response.data);
+    final orders = _mapList(items, _deliveryRecordFromPayload);
+    if (orders.isEmpty) {
+      return _legacyDeliveredOrders(api);
+    }
     _debugLog(
       '$endpoint status=${response.statusCode ?? 'unknown'} count=${orders.length} empty=${orders.isEmpty}',
     );
@@ -39,52 +95,11 @@ final activeOrdersProvider = FutureProvider.autoDispose<List<DeliveryOrder>>((
       '$endpoint status=${error.statusCode ?? 'unknown'} error=${error.errorCode ?? error.message}',
     );
     if (error.statusCode == 404) {
-      return const <DeliveryOrder>[];
+      return _legacyDeliveredOrders(api);
     }
     rethrow;
   }
 });
-
-// ---------------------------------------------------------------------------
-// Delivered orders provider
-// GET /api/v1/orders/history?status=delivered
-// ---------------------------------------------------------------------------
-
-final deliveredOrdersProvider =
-    FutureProvider.autoDispose<List<DeliveryRecord>>((ref) async {
-      final api = ref.watch(riderBackendApiProvider);
-      final prefs = ref.watch(appPreferencesProvider);
-      const endpoint = '/api/v1/orders/history?status=delivered';
-
-      if ((prefs.accessToken ?? '').isEmpty) {
-        _debugLog('$endpoint skipped authTokenPresent=no');
-        throw const ApiException(
-          message: 'Please sign in again to view delivered orders.',
-          statusCode: 401,
-          errorCode: 'AUTH_REQUIRED',
-        );
-      }
-
-      try {
-        final response = await api.orders.orderHistory(
-          queryParameters: const {'status': 'delivered'},
-        );
-        final items = _extractList(response.data);
-        final orders = _mapList(items, _deliveryRecordFromPayload);
-        _debugLog(
-          '$endpoint status=${response.statusCode ?? 'unknown'} count=${orders.length} empty=${orders.isEmpty}',
-        );
-        return orders;
-      } on ApiException catch (error) {
-        _debugLog(
-          '$endpoint status=${error.statusCode ?? 'unknown'} error=${error.errorCode ?? error.message}',
-        );
-        if (error.statusCode == 404) {
-          return const <DeliveryRecord>[];
-        }
-        rethrow;
-      }
-    });
 
 // ---------------------------------------------------------------------------
 // Linked restaurants provider
@@ -137,6 +152,51 @@ List<T> _mapList<T>(List<dynamic> items, T? Function(Object? item) mapper) {
   return mapped;
 }
 
+Future<DeliveryOrder?> _legacyActiveOrder(RiderBackendApi api) async {
+  try {
+    final response = await api.orders.activeOrder();
+    final order = _deliveryOrderFromPayload(response.data);
+    _debugLog(
+      '/api/v1/orders/active fallback status=${response.statusCode ?? 'unknown'} '
+      'present=${order != null}',
+    );
+    return order;
+  } on ApiException catch (error) {
+    _debugLog(
+      '/api/v1/orders/active fallback status=${error.statusCode ?? 'unknown'} '
+      'error=${error.errorCode ?? error.message}',
+    );
+    if (error.statusCode == 404) {
+      return null;
+    }
+    rethrow;
+  }
+}
+
+Future<List<DeliveryRecord>> _legacyDeliveredOrders(RiderBackendApi api) async {
+  try {
+    final response = await api.orders.orderHistory(
+      queryParameters: const {'status': 'delivered'},
+    );
+    final items = _extractList(response.data);
+    final orders = _mapList(items, _deliveryRecordFromPayload);
+    _debugLog(
+      '/api/v1/orders/history fallback status=${response.statusCode ?? 'unknown'} '
+      'count=${orders.length}',
+    );
+    return orders;
+  } on ApiException catch (error) {
+    _debugLog(
+      '/api/v1/orders/history fallback status=${error.statusCode ?? 'unknown'} '
+      'error=${error.errorCode ?? error.message}',
+    );
+    if (error.statusCode == 404) {
+      return const <DeliveryRecord>[];
+    }
+    rethrow;
+  }
+}
+
 DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
   final raw = _asMap(item);
   if (raw.isEmpty) {
@@ -148,6 +208,12 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
     _firstPresent([order['restaurant'], raw['restaurant']]),
   );
   final customer = _asMap(_firstPresent([order['customer'], raw['customer']]));
+  final pickup = _asMap(
+    _firstPresent([order['pickup_address'], raw['pickup_address']]),
+  );
+  final deliveryAddress = _asMap(
+    _firstPresent([order['delivery_address'], raw['delivery_address']]),
+  );
   final now = DateTime.now();
   final id = _asString(
     _firstPresent([
@@ -165,6 +231,9 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
     assignmentId: _asNullableString(
       _firstPresent([raw['assignment_id'], order['assignment_id']]),
     ),
+    deliveryOrderId: _asIntOrNull(
+      _firstPresent([raw['delivery_order_id'], order['delivery_order_id']]),
+    ),
     restaurantName: _asString(
       _firstPresent([
         order['restaurant_name'],
@@ -178,24 +247,29 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
         order['customer_name'],
         customer['name'],
         raw['customer_name'],
+        customer['full_name'],
       ]),
       fallback: 'Customer',
     ),
     pickupAddress: _asString(
       _firstPresent([
-        order['pickup_address'],
+        pickup['address'],
+        pickup['address_line1'],
+        _scalarString(order['pickup_address']),
         order['restaurant_address'],
         restaurant['address'],
-        raw['pickup_address'],
+        _scalarString(raw['pickup_address']),
       ]),
       fallback: 'Pickup address not available',
     ),
     dropAddress: _asString(
       _firstPresent([
-        order['delivery_address'],
+        deliveryAddress['address'],
+        deliveryAddress['address_line1'],
+        _scalarString(order['delivery_address']),
         order['drop_address'],
         customer['address'],
-        raw['delivery_address'],
+        _scalarString(raw['delivery_address']),
         raw['drop_address'],
       ]),
       fallback: 'Drop address not available',
@@ -218,6 +292,7 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
       _firstPresent([
         order['restaurant_lat'],
         order['pickup_latitude'],
+        pickup['latitude'],
         restaurant['latitude'],
         raw['pickup_latitude'],
       ]),
@@ -226,6 +301,7 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
       _firstPresent([
         order['restaurant_lng'],
         order['pickup_longitude'],
+        pickup['longitude'],
         restaurant['longitude'],
         raw['pickup_longitude'],
       ]),
@@ -234,6 +310,7 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
       _firstPresent([
         order['delivery_latitude'],
         order['drop_latitude'],
+        deliveryAddress['latitude'],
         customer['latitude'],
         raw['drop_latitude'],
       ]),
@@ -242,6 +319,7 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
       _firstPresent([
         order['delivery_longitude'],
         order['drop_longitude'],
+        deliveryAddress['longitude'],
         customer['longitude'],
         raw['drop_longitude'],
       ]),
@@ -278,6 +356,7 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
         _firstPresent([
           order['delivery_status'],
           order['status'],
+          raw['delivery_status'],
           raw['status'],
         ]),
         fallback: 'assigned',
@@ -288,6 +367,7 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
         order['payment_method'],
         order['payment_mode'],
         raw['payment_method'],
+        raw['payment_mode'],
       ]),
       fallback: 'Cash',
     ),
@@ -296,6 +376,7 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
         order['order_number'],
         order['order_code'],
         raw['order_code'],
+        raw['order_number'],
         id,
       ]),
       fallback: id,
@@ -316,6 +397,10 @@ DeliveryOrder? _deliveryOrderFromPayload(Object? item) {
     isMultiOrder: _asBool(
       _firstPresent([order['is_multi_order'], raw['stacked']]),
     ),
+    assignmentType: _asString(
+      _firstPresent([raw['assignment_type'], order['assignment_type']]),
+      fallback: 'restaurant_owned',
+    ),
   );
 }
 
@@ -330,6 +415,12 @@ DeliveryRecord? _deliveryRecordFromPayload(Object? item) {
     _firstPresent([order['restaurant'], raw['restaurant']]),
   );
   final customer = _asMap(_firstPresent([order['customer'], raw['customer']]));
+  final pickup = _asMap(
+    _firstPresent([order['pickup_address'], raw['pickup_address']]),
+  );
+  final deliveryAddress = _asMap(
+    _firstPresent([order['delivery_address'], raw['delivery_address']]),
+  );
   final id = _asString(
     _firstPresent([order['id'], order['order_id'], raw['order_id'], raw['id']]),
     fallback: 'delivery',
@@ -350,41 +441,62 @@ DeliveryRecord? _deliveryRecordFromPayload(Object? item) {
         order['customer_name'],
         customer['name'],
         raw['customer_name'],
+        customer['full_name'],
       ]),
       fallback: 'Customer',
     ),
     pickupAddress: _asString(
       _firstPresent([
-        order['pickup_address'],
+        pickup['address'],
+        pickup['address_line1'],
+        _scalarString(order['pickup_address']),
         order['restaurant_address'],
         restaurant['address'],
+        _scalarString(raw['pickup_address']),
       ]),
       fallback: 'Pickup address not available',
     ),
     dropAddress: _asString(
       _firstPresent([
-        order['delivery_address'],
+        deliveryAddress['address'],
+        deliveryAddress['address_line1'],
+        _scalarString(order['delivery_address']),
         order['drop_address'],
         customer['address'],
+        _scalarString(raw['delivery_address']),
+        raw['drop_address'],
       ]),
       fallback: 'Drop address not available',
     ),
-    distanceKm: _asDouble(_firstPresent([order['distance_km'], raw['distance_km']])),
+    distanceKm: _asDouble(
+      _firstPresent([order['distance_km'], raw['distance_km']]),
+    ),
     earnings: _asDouble(
       _firstPresent([
         order['net_earning'],
         order['base_payout'],
         order['payout'],
         order['total_amount'],
+        raw['amount_to_collect'],
+        raw['amount'],
         raw['earnings'],
       ]),
     ),
     paymentMethod: _asString(
-      _firstPresent([order['payment_method'], order['payment_mode']]),
+      _firstPresent([
+        order['payment_method'],
+        order['payment_mode'],
+        raw['payment_method'],
+        raw['payment_mode'],
+      ]),
       fallback: 'Cash',
     ),
     itemsCount: _asInt(
-      _firstPresent([order['items_count'], order['item_count']]),
+      _firstPresent([
+        order['items_count'],
+        order['item_count'],
+        raw['items_count'],
+      ]),
       fallback: _extractList(order, keys: const ['items']).length,
     ).clamp(1, 999).toInt(),
     outcome: DeliveryOutcome.completed,
@@ -502,6 +614,13 @@ String? _asNullableString(Object? value) {
   return text.isEmpty ? null : text;
 }
 
+String _scalarString(Object? value) {
+  if (value is Map || value is Iterable) {
+    return '';
+  }
+  return _asString(value);
+}
+
 int _asInt(Object? value, {int fallback = 0}) {
   if (value is int) {
     return value;
@@ -515,6 +634,19 @@ int _asInt(Object? value, {int fallback = 0}) {
   return fallback;
 }
 
+int? _asIntOrNull(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value.trim());
+  }
+  return null;
+}
+
 double _asDouble(Object? value, {double fallback = 0}) {
   if (value is num) {
     return value.toDouble();
@@ -525,10 +657,7 @@ double _asDouble(Object? value, {double fallback = 0}) {
   return fallback;
 }
 
-double _payoutFromOrder(
-  Map<String, dynamic> order,
-  Map<String, dynamic> raw,
-) {
+double _payoutFromOrder(Map<String, dynamic> order, Map<String, dynamic> raw) {
   final explicitPayout = _firstPresent([
     order['net_earning'],
     raw['net_earning'],
@@ -536,6 +665,8 @@ double _payoutFromOrder(
     raw['payout'],
     order['total_payout'],
     raw['total_payout'],
+    raw['amount_to_collect'],
+    raw['amount'],
   ]);
   if (explicitPayout != null) {
     return _asDouble(explicitPayout);

@@ -63,10 +63,16 @@ class RiderDeliveryApiService {
   Future<ApiEnvelope<Map<String, dynamic>>> updateDeliveryStatus({
     required int orderId,
     required String deliveryStatus,
+    bool? paymentCollected,
+    String? notes,
   }) {
     return _client.postObject(
-      '/riders/orders/$orderId/status',
-      body: {'delivery_status': deliveryStatus},
+      '/api/v1/riders/orders/$orderId/status',
+      body: {
+        'delivery_status': deliveryStatus,
+        if (paymentCollected != null) 'payment_collected': paymentCollected,
+        if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+      },
     );
   }
 

@@ -20,8 +20,7 @@ class EarningsScreen extends ConsumerWidget {
     return PremiumScaffold(
       title: 'Earnings',
       subtitle: 'Revenue breakdown, trend, and payout overview.',
-      onRefresh: () =>
-          ref.read(earningsControllerProvider.notifier).refresh(),
+      onRefresh: () => ref.read(earningsControllerProvider.notifier).refresh(),
       child: earningsAsync.when(
         loading: () => const Padding(
           padding: EdgeInsets.all(AppSpacing.xl),
@@ -39,24 +38,58 @@ class EarningsScreen extends ConsumerWidget {
             title: 'Could not load earnings',
             subtitle: error is ApiException
                 ? error.message
-                : 'Something went wrong.',
+                : 'Something went wrong. Please try again.',
+            action: FilledButton.icon(
+              onPressed: () =>
+                  ref.read(earningsControllerProvider.notifier).refresh(),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Retry'),
+            ),
           ),
         ),
         data: (state) {
           final earnings = state.earnings;
-          if (earnings == null) {
-            return const Center(
+          if (earnings == null || !state.hasAnyEarnings) {
+            return Center(
               child: EmptyStateCard(
                 icon: Icons.attach_money_rounded,
-                title: 'No earnings data',
-                subtitle: 'Complete deliveries to see your earnings.',
+                emoji: '💸',
+                animateVisual: true,
+                title: 'No earnings yet',
+                subtitle:
+                    'No earnings yet - once you complete deliveries, your earnings will appear here.',
+                action: OutlinedButton.icon(
+                  onPressed: () =>
+                      ref.read(earningsControllerProvider.notifier).refresh(),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Refresh'),
+                ),
               ),
             );
           }
 
+          final payout = state.payoutSummary;
+          final hasBreakdown =
+              earnings.deliveryFees > 0 ||
+              earnings.incentives > 0 ||
+              earnings.tips > 0 ||
+              earnings.bonus > 0;
+          final hasPayoutSummary =
+              payout != null &&
+              (payout.walletBalance > 0 ||
+                  payout.pendingPayout > 0 ||
+                  payout.settledPayout > 0 ||
+                  payout.bankAccountMasked.isNotEmpty);
+          final hasTrend =
+              earnings.trend.isNotEmpty &&
+              earnings.trend.any((point) => point.amount > 0);
+
           return ListView(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
+              AppSpacing.xl,
+              0,
+              AppSpacing.xl,
+              AppSpacing.xl,
             ),
             children: [
               Wrap(
@@ -81,39 +114,89 @@ class EarningsScreen extends ConsumerWidget {
                     icon: Icons.calendar_month_rounded,
                     accent: AppColors.emerald,
                   ),
+                  MetricCard(
+                    label: 'Total',
+                    value: Formatters.currency(state.totalEarnings),
+                    icon: Icons.payments_rounded,
+                    accent: AppColors.cherry,
+                  ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.xl),
-              SparklineMetricCard(
-                title: 'Earnings trend',
-                value: Formatters.currency(earnings.weekly),
-                trend: earnings.trend.map((p) => p.amount).toList(),
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              GlassCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SectionHeader(
-                      title: 'Breakdown',
-                      subtitle: 'Where your earnings come from.',
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    _EarningsRow(
-                      label: 'Incentives',
-                      value: Formatters.currency(earnings.incentives),
-                    ),
-                    _EarningsRow(
-                      label: 'Tips',
-                      value: Formatters.currency(earnings.tips),
-                    ),
-                    _EarningsRow(
-                      label: 'Bonus',
-                      value: Formatters.currency(earnings.bonus),
-                    ),
-                  ],
+              if (hasTrend) ...[
+                const SizedBox(height: AppSpacing.xl),
+                SparklineMetricCard(
+                  title: 'Earnings trend',
+                  value: Formatters.currency(earnings.weekly),
+                  trend: earnings.trend.map((p) => p.amount).toList(),
                 ),
-              ),
+              ],
+              if (hasPayoutSummary) ...[
+                const SizedBox(height: AppSpacing.xl),
+                GlassCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SectionHeader(
+                        title: 'Payout overview',
+                        subtitle: 'Wallet and settlement status.',
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      _EarningsRow(
+                        label: 'Wallet balance',
+                        value: Formatters.currency(payout.walletBalance),
+                      ),
+                      _EarningsRow(
+                        label: 'Pending',
+                        value: Formatters.currency(payout.pendingPayout),
+                      ),
+                      _EarningsRow(
+                        label: 'Settled',
+                        value: Formatters.currency(payout.settledPayout),
+                      ),
+                      if (payout.bankAccountMasked.isNotEmpty)
+                        _EarningsRow(
+                          label: 'Bank',
+                          value: payout.bankAccountMasked,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+              if (hasBreakdown) ...[
+                const SizedBox(height: AppSpacing.xl),
+                GlassCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SectionHeader(
+                        title: 'Breakdown',
+                        subtitle: 'Where your earnings come from.',
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      if (earnings.deliveryFees > 0)
+                        _EarningsRow(
+                          label: 'Delivery fees',
+                          value: Formatters.currency(earnings.deliveryFees),
+                        ),
+                      if (earnings.incentives > 0)
+                        _EarningsRow(
+                          label: 'Incentives',
+                          value: Formatters.currency(earnings.incentives),
+                        ),
+                      if (earnings.tips > 0)
+                        _EarningsRow(
+                          label: 'Tips',
+                          value: Formatters.currency(earnings.tips),
+                        ),
+                      if (earnings.bonus > 0)
+                        _EarningsRow(
+                          label: 'Bonus',
+                          value: Formatters.currency(earnings.bonus),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
               if (earnings.payoutHistory.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.xl),
                 GlassCard(

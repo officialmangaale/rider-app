@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../domain/entities/app_models.dart';
 import '../../features/auth/presentation/auth_screen.dart';
 import '../../features/auth/presentation/signup_screen.dart';
 import '../../features/availability/presentation/availability_screen.dart';
@@ -15,18 +17,17 @@ import '../../features/onboarding/presentation/onboarding_screen.dart';
 import '../../features/orders/presentation/orders_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/ratings/presentation/ratings_screen.dart';
+import '../../features/restaurant_rider/presentation/active_orders_screen.dart';
+import '../../features/restaurant_rider/presentation/delivered_orders_screen.dart';
+import '../../features/restaurant_rider/presentation/order_detail_screen.dart';
+import '../../features/restaurant_rider/presentation/restaurant_profile_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../features/shell/presentation/app_shell_screen.dart';
 import '../../features/splash/presentation/splash_screen.dart';
 import '../../features/support/presentation/support_screen.dart';
 import '../../features/wallet/presentation/wallet_screen.dart';
-import '../constants/app_constants.dart';
+import '../../presentation/providers/rider_compliance_provider.dart';
 import 'app_routes.dart';
-import '../../features/restaurant_rider/presentation/active_orders_screen.dart';
-import '../../features/restaurant_rider/presentation/delivered_orders_screen.dart';
-import '../../features/restaurant_rider/presentation/restaurant_profile_screen.dart';
-import '../../features/restaurant_rider/presentation/order_detail_screen.dart';
-import '../../domain/entities/app_models.dart';
 
 class AppRouterRefreshListenable extends ChangeNotifier {
   void refresh() => notifyListeners();
@@ -127,95 +128,104 @@ GoRouter buildAppRouter({
         path: AppRoutes.signup,
         pageBuilder: (context, state) => buildPage(const SignupScreen(), state),
       ),
-      if (AppConstants.restaurantOwnedRiderMode)
-        GoRoute(
-          path: AppRoutes.home,
-          redirect: (context, state) =>
-              AppRoutes.resolveEntryRoute(readAuthSnapshot()),
-        ),
+      GoRoute(
+        path: AppRoutes.modeGate,
+        pageBuilder: (context, state) =>
+            buildPage(const _RiderModeGateScreen(), state),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
-          return AppShellScreen(navigationShell: navigationShell);
+          return AppShellScreen(
+            navigationShell: navigationShell,
+            mode: RiderShellMode.restaurantOwned,
+          );
         },
-        branches: AppConstants.restaurantOwnedRiderMode
-            ? [
-                StatefulShellBranch(
-                  routes: [
-                    GoRoute(
-                      path: AppRoutes.activeOrders,
-                      pageBuilder: (context, state) =>
-                          const NoTransitionPage(child: ActiveOrdersScreen()),
-                    ),
-                  ],
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.activeOrders,
+                pageBuilder: (context, state) =>
+                    const NoTransitionPage(child: ActiveOrdersScreen()),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.deliveredOrders,
+                pageBuilder: (context, state) => const NoTransitionPage(
+                  child: DeliveredOrdersScreen(),
                 ),
-                StatefulShellBranch(
-                  routes: [
-                    GoRoute(
-                      path: AppRoutes.deliveredOrders,
-                      pageBuilder: (context, state) => const NoTransitionPage(
-                        child: DeliveredOrdersScreen(),
-                      ),
-                    ),
-                  ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.restaurantProfile,
+                pageBuilder: (context, state) => const NoTransitionPage(
+                  child: RestaurantProfileScreen(),
                 ),
-                StatefulShellBranch(
-                  routes: [
-                    GoRoute(
-                      path: AppRoutes.profile,
-                      pageBuilder: (context, state) => const NoTransitionPage(
-                        child: RestaurantProfileScreen(),
-                      ),
-                    ),
-                  ],
-                ),
-              ]
-            : [
-                StatefulShellBranch(
-                  routes: [
-                    GoRoute(
-                      path: AppRoutes.home,
-                      pageBuilder: (context, state) =>
-                          const NoTransitionPage(child: DashboardScreen()),
-                    ),
-                  ],
-                ),
-                StatefulShellBranch(
-                  routes: [
-                    GoRoute(
-                      path: AppRoutes.requests,
-                      pageBuilder: (context, state) =>
-                          const NoTransitionPage(child: OrdersScreen()),
-                    ),
-                  ],
-                ),
-                StatefulShellBranch(
-                  routes: [
-                    GoRoute(
-                      path: AppRoutes.delivery,
-                      pageBuilder: (context, state) =>
-                          const NoTransitionPage(child: ActiveDeliveryScreen()),
-                    ),
-                  ],
-                ),
-                StatefulShellBranch(
-                  routes: [
-                    GoRoute(
-                      path: AppRoutes.earnings,
-                      pageBuilder: (context, state) =>
-                          const NoTransitionPage(child: EarningsScreen()),
-                    ),
-                  ],
-                ),
-                StatefulShellBranch(
-                  routes: [
-                    GoRoute(
-                      path: AppRoutes.profile,
-                      pageBuilder: (context, state) =>
-                          const NoTransitionPage(child: ProfileScreen()),
-                    ),
-                  ],
-                ),
-              ],
+              ),
+            ],
+          ),
+        ],
+      ),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          return AppShellScreen(
+            navigationShell: navigationShell,
+            mode: RiderShellMode.platform,
+          );
+        },
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.home,
+                pageBuilder: (context, state) =>
+                    const NoTransitionPage(child: DashboardScreen()),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.requests,
+                pageBuilder: (context, state) =>
+                    const NoTransitionPage(child: OrdersScreen()),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.delivery,
+                pageBuilder: (context, state) =>
+                    const NoTransitionPage(child: ActiveDeliveryScreen()),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.earnings,
+                pageBuilder: (context, state) =>
+                    const NoTransitionPage(child: EarningsScreen()),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.profile,
+                pageBuilder: (context, state) =>
+                    const NoTransitionPage(child: ProfileScreen()),
+              ),
+            ],
+          ),
+        ],
       ),
       GoRoute(
         path: AppRoutes.navigation,
@@ -290,6 +300,111 @@ GoRouter buildAppRouter({
       ),
     ],
   );
+}
+
+class _RiderModeGateScreen extends ConsumerWidget {
+  const _RiderModeGateScreen();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profileState = ref.watch(riderComplianceControllerProvider);
+
+    return profileState.when(
+      data: (state) {
+        final profile = state.profile;
+        final target = profile.isRestaurantLinked
+            ? AppRoutes.activeOrders
+            : AppRoutes.home;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          assert(() {
+            debugPrint(
+              'Rider mode resolved: mode=${profile.mode.isEmpty ? 'platform' : profile.mode} '
+              'linkedRestaurants=${profile.linkedRestaurantCount} '
+              'target=$target',
+            );
+            return true;
+          }());
+          context.go(target);
+        });
+        return const _ModeGateScaffold(
+          message: 'Opening your rider workspace...',
+        );
+      },
+      loading: () =>
+          const _ModeGateScaffold(message: 'Loading your rider profile...'),
+      error: (error, _) => _ModeGateScaffold(
+        message: 'Could not load your rider profile.',
+        actionLabel: 'Retry',
+        onAction: () => ref.invalidate(riderComplianceControllerProvider),
+        debugMessage: kDebugMode ? '$error' : null,
+      ),
+    );
+  }
+}
+
+class _ModeGateScaffold extends StatelessWidget {
+  const _ModeGateScaffold({
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+    this.debugMessage,
+  });
+
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  final String? debugMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (onAction == null)
+                    const CircularProgressIndicator()
+                  else
+                    Icon(
+                      Icons.sync_problem_rounded,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  const SizedBox(height: 20),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  if (debugMessage != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      debugMessage!,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                  if (actionLabel != null && onAction != null) ...[
+                    const SizedBox(height: 20),
+                    FilledButton(
+                      onPressed: onAction,
+                      child: Text(actionLabel!),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _RouteErrorScreen extends StatelessWidget {

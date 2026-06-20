@@ -39,11 +39,11 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final earningsAsync = ref.watch(earningsControllerProvider);
+    final historyAsync = ref.watch(deliveryHistoryControllerProvider);
 
     // If detail route, show detail view.
     if (widget.detailId != null) {
-      final record = earningsAsync.valueOrNull?.history.where(
+      final record = historyAsync.valueOrNull?.records.where(
         (r) => r.id == widget.detailId,
       );
       if (record != null && record.isNotEmpty) {
@@ -65,21 +65,36 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       title: 'Delivery history',
       subtitle: 'Past deliveries and earnings breakdown.',
       onRefresh: () =>
-          ref.read(earningsControllerProvider.notifier).refresh(),
-      child: earningsAsync.when(
+          ref.read(deliveryHistoryControllerProvider.notifier).refresh(),
+      child: historyAsync.when(
         loading: () => const Padding(
           padding: EdgeInsets.all(AppSpacing.xl),
-          child: Column(children: [ShimmerCard(), SizedBox(height: AppSpacing.md), ShimmerCard()]),
+          child: Column(
+            children: [
+              ShimmerCard(),
+              SizedBox(height: AppSpacing.md),
+              ShimmerCard(),
+            ],
+          ),
         ),
         error: (error, _) => Center(
           child: EmptyStateCard(
             icon: Icons.warning_rounded,
             title: 'Could not load history',
-            subtitle: error is ApiException ? error.message : 'Something went wrong.',
+            subtitle: error is ApiException
+                ? error.message
+                : 'Something went wrong. Please try again.',
+            action: FilledButton.icon(
+              onPressed: () => ref
+                  .read(deliveryHistoryControllerProvider.notifier)
+                  .refresh(),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Retry'),
+            ),
           ),
         ),
         data: (state) {
-          var records = state.history;
+          var records = state.records;
 
           // Apply search filter.
           if (_query.isNotEmpty) {
@@ -92,8 +107,9 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
           // Apply outcome filter.
           if (_filterOutcome != null) {
-            records =
-                records.where((r) => r.outcome == _filterOutcome).toList();
+            records = records
+                .where((r) => r.outcome == _filterOutcome)
+                .toList();
           }
 
           return Column(
@@ -118,10 +134,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                       icon: const Icon(Icons.filter_list_rounded),
                       onSelected: (v) => setState(() => _filterOutcome = v),
                       itemBuilder: (_) => [
-                        const PopupMenuItem(
-                          value: null,
-                          child: Text('All'),
-                        ),
+                        const PopupMenuItem(value: null, child: Text('All')),
                         const PopupMenuItem(
                           value: DeliveryOutcome.completed,
                           child: Text('Completed'),
@@ -144,16 +157,37 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               // ── Records list ────────────────────────────────
               Expanded(
                 child: records.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: EmptyStateCard(
                           icon: Icons.history_rounded,
-                          title: 'No records found',
-                          subtitle: 'Try a different search or filter.',
+                          emoji: state.records.isEmpty ? '📦' : null,
+                          animateVisual: state.records.isEmpty,
+                          title: state.records.isEmpty
+                              ? 'No history yet'
+                              : 'No records found',
+                          subtitle: state.records.isEmpty
+                              ? 'History not available buddy - you will get lots of orders soon, and we will keep your delivery history here.'
+                              : 'Try a different search or filter.',
+                          action: state.records.isEmpty
+                              ? OutlinedButton.icon(
+                                  onPressed: () => ref
+                                      .read(
+                                        deliveryHistoryControllerProvider
+                                            .notifier,
+                                      )
+                                      .refresh(),
+                                  icon: const Icon(Icons.refresh_rounded),
+                                  label: const Text('Refresh'),
+                                )
+                              : null,
                         ),
                       )
                     : ListView.separated(
                         padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
+                          AppSpacing.xl,
+                          0,
+                          AppSpacing.xl,
+                          AppSpacing.xl,
                         ),
                         itemCount: records.length,
                         separatorBuilder: (_, __) =>
@@ -188,11 +222,9 @@ class _RecordCard extends StatelessWidget {
 
     return GlassCard(
       accent: outcomeColor,
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => _DetailView(record: record),
-        ),
-      ),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => _DetailView(record: record))),
       child: Row(
         children: [
           Expanded(
@@ -224,10 +256,7 @@ class _RecordCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 2),
-              StatusPill(
-                label: record.outcome.name,
-                color: outcomeColor,
-              ),
+              StatusPill(label: record.outcome.name, color: outcomeColor),
             ],
           ),
         ],
@@ -249,7 +278,10 @@ class _DetailView extends StatelessWidget {
       subtitle: Formatters.dateLong(record.completedAt),
       child: ListView(
         padding: const EdgeInsets.fromLTRB(
-          AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
+          AppSpacing.xl,
+          0,
+          AppSpacing.xl,
+          AppSpacing.xl,
         ),
         children: [
           GlassCard(

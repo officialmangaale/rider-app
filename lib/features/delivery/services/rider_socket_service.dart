@@ -92,20 +92,24 @@ class RiderSocketService {
     try {
       final decoded = jsonDecode(message as String) as Map<String, dynamic>;
       final type = decoded['type'] as String?;
+      final normalizedType = (type ?? '').trim().toUpperCase();
       final data = _asMap(decoded['data']);
       _debug('event type=${type ?? 'missing'}');
 
-      if (type == 'DELIVERY_ORDER_REQUEST') {
+      if (normalizedType == 'DELIVERY_ORDER_REQUEST') {
         onDeliveryOrderRequest(RiderOrderRequestModel.fromJson(data));
-      } else if (type == 'ORDER_REQUEST_EXPIRED') {
+      } else if (normalizedType == 'ORDER_REQUEST_EXPIRED' ||
+          normalizedType == 'REQUEST_EXPIRED') {
         final requestId = _asInt(data['request_id'] ?? decoded['request_id']);
         final orderId = _asInt(data['order_id'] ?? decoded['order_id']);
         onOrderRequestExpired(requestId, orderId);
-      } else if (type == 'ORDER_ASSIGNED_TO_OTHER_RIDER') {
+      } else if (normalizedType == 'ORDER_ASSIGNED_TO_OTHER_RIDER') {
         final requestId = _asInt(data['request_id'] ?? decoded['request_id']);
         final orderId = _asInt(data['order_id'] ?? decoded['order_id']);
         onOrderAssignedToOther(requestId, orderId);
-      } else if (type == 'order_assigned') {
+      } else if (normalizedType == 'ORDER_ASSIGNED' ||
+          normalizedType == 'RIDER_ASSIGNED' ||
+          normalizedType == 'RIDER_ASSIGNED_TO_ORDER') {
         final orderId = _asInt(data['order_id'] ?? decoded['order_id']);
         final restaurantId = _asIntOrNull(
           data['restaurant_id'] ?? decoded['restaurant_id'],
@@ -113,8 +117,20 @@ class RiderSocketService {
         final assignmentType = '${data['assignment_type'] ?? ''}'
             .trim()
             .toLowerCase();
-        if (orderId > 0 && assignmentType == 'restaurant_owned') {
+        if (orderId > 0 &&
+            (assignmentType == 'restaurant_owned' ||
+                assignmentType == 'restaurant_own_rider' ||
+                normalizedType == 'RIDER_ASSIGNED')) {
           onRestaurantOwnedOrderAssigned(orderId, restaurantId);
+        }
+      } else if (normalizedType == 'ORDER_STATUS_UPDATED' ||
+          normalizedType == 'DELIVERY_STATUS_UPDATED') {
+        final orderId = _asInt(data['order_id'] ?? decoded['order_id']);
+        if (orderId > 0) {
+          onRestaurantOwnedOrderAssigned(
+            orderId,
+            _asIntOrNull(data['restaurant_id']),
+          );
         }
       }
     } catch (e) {

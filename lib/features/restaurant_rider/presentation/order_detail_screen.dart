@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../domain/entities/app_models.dart';
@@ -27,6 +30,14 @@ class OrderDetailScreen extends ConsumerStatefulWidget {
 
 class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
   bool _isLoading = false;
+  String? _canonicalStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    _canonicalStatus = _statusFromStage(widget.order.status);
+    unawaited(_refreshCanonicalStatus());
+  }
 
   Future<void> _launchPhone(String phone) async {
     final trimmedPhone = phone.trim();
@@ -43,35 +54,62 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
     showLuxurySnackBar(context, 'Could not open phone dialer');
   }
 
-  Future<void> _launchMaps(double latitude, double longitude) async {
-    if (!_hasUsableCoordinate(latitude, longitude)) {
-      showLuxurySnackBar(context, 'Map location is not available');
+  Future<void> _launchMaps(
+    double latitude,
+    double longitude, {
+    required String address,
+  }) async {
+    final result = await ref
+        .read(mapLauncherServiceProvider)
+        .openPoint(latitude: latitude, longitude: longitude, address: address);
+    if (!mounted || result.opened) {
       return;
     }
-    final url = Uri.parse(
-      'https://www.google.com/maps/search/?api=1&query=$latitude,$longitude',
+    _showMapFallback(
+      address: result.displayAddress ?? address,
+      latitude: latitude,
+      longitude: longitude,
     );
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-      return;
-    }
-    if (!mounted) return;
-    showLuxurySnackBar(context, 'Could not open maps on this device');
   }
 
   Future<void> _markPickedUp() async {
     setState(() => _isLoading = true);
     try {
       final api = ref.read(riderBackendApiProvider);
-      await api.delivery.pickedUp(widget.order.id);
+      final currentStatus = await _currentDeliveryStatus();
+      if (!_canMarkPickedUp(currentStatus)) {
+        if (mounted) {
+          showLuxurySnackBar(
+            context,
+            'Order status changed. Refreshing the valid next step.',
+          );
+          ref.invalidate(activeOrdersProvider);
+        }
+        return;
+      }
+      _debugAction('picked_up', currentStatus);
+      final response = await api.delivery.updateRiderOrderStatus(
+        widget.order.id,
+        deliveryStatus: 'picked_up',
+      );
+      _debugActionResult('picked_up', response.statusCode);
       if (mounted) {
-        showLuxurySnackBar(context, 'Order marked as picked up');
+        showLuxurySnackBar(context, 'Pickup confirmed');
         ref.invalidate(activeOrdersProvider);
         context.pop();
       }
+    } on ApiException catch (error) {
+      if (mounted) {
+        if (error.statusCode == 409 || error.statusCode == 400) {
+          await _refreshCanonicalStatus();
+          if (!mounted) return;
+        }
+        ref.invalidate(activeOrdersProvider);
+        showLuxurySnackBar(context, _statusErrorMessage(error), isError: true);
+      }
     } catch (e) {
       if (mounted) {
-        showLuxurySnackBar(context, 'Failed to update order');
+        showLuxurySnackBar(context, 'Could not update order', isError: true);
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -108,48 +146,162 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
     setState(() => _isLoading = true);
     try {
       final api = ref.read(riderBackendApiProvider);
-      // Wait, user specified api expects payment_collected and notes
-      // We are using existing rider-service which has /api/v1/delivery/:orderId/delivered without body
-      // User says: POST /rider/orders/:orderId/deliver Request: { "payment_collected": true, "notes": "Delivered" }
-      // The instruction: "Use existing rider-service endpoints for ... delivered orders ... If an endpoint is missing, add a TODO and list required backend change instead of calling restaurant-service directly."
-      // So we use existing `api.delivery.delivered` which does not take a body.
-      // TODO: Backend rider-service needs to support COD payment flag in delivered endpoint.
-      await api.delivery.delivered(widget.order.id);
+      final currentStatus = await _currentDeliveryStatus();
+      if (!_canMarkDelivered(currentStatus)) {
+        if (mounted) {
+          showLuxurySnackBar(
+            context,
+            currentStatus == 'rider_assigned'
+                ? 'Confirm pickup before marking delivery complete.'
+                : 'Order status changed. Refreshing the valid next step.',
+          );
+          ref.invalidate(activeOrdersProvider);
+        }
+        return;
+      }
+      final paymentCollected = _isCashPayment(widget.order.paymentMethod)
+          ? true
+          : null;
+      _debugAction('delivered', currentStatus);
+      final response = await api.delivery.updateRiderOrderStatus(
+        widget.order.id,
+        deliveryStatus: 'delivered',
+        paymentCollected: paymentCollected,
+      );
+      _debugActionResult('delivered', response.statusCode);
       if (mounted) {
         showLuxurySnackBar(context, 'Order marked as delivered');
         ref.invalidate(activeOrdersProvider);
         ref.invalidate(deliveredOrdersProvider);
         context.pop();
       }
+    } on ApiException catch (error) {
+      if (mounted) {
+        if (error.statusCode == 409 || error.statusCode == 400) {
+          await _refreshCanonicalStatus();
+          if (!mounted) return;
+        }
+        ref.invalidate(activeOrdersProvider);
+        showLuxurySnackBar(context, _statusErrorMessage(error), isError: true);
+      }
     } catch (e) {
       if (mounted) {
-        showLuxurySnackBar(context, 'Failed to update order');
+        showLuxurySnackBar(context, 'Could not update order', isError: true);
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  Future<String> _currentDeliveryStatus() async {
+    final api = ref.read(riderBackendApiProvider);
+    try {
+      final response = await api.delivery.riderOrderDetail(widget.order.id);
+      final raw = response.data;
+      final order = _asMap(raw['order']);
+      final status = _asString(
+        _firstPresent([
+          raw['delivery_status'],
+          order['delivery_status'],
+          raw['status'],
+          order['status'],
+        ]),
+        fallback: _statusFromStage(widget.order.status),
+      );
+      _debugStatus(status, response.statusCode);
+      if (mounted && status != _canonicalStatus) {
+        setState(() => _canonicalStatus = status);
+      }
+      return status;
+    } on ApiException catch (error) {
+      _debugStatus('fallback:${widget.order.status.name}', error.statusCode);
+      if (error.statusCode == 404) {
+        final fallback = _statusFromStage(widget.order.status);
+        if (mounted && fallback != _canonicalStatus) {
+          setState(() => _canonicalStatus = fallback);
+        }
+        return fallback;
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _refreshCanonicalStatus() async {
+    try {
+      await _currentDeliveryStatus();
+    } catch (error) {
+      _debugRestaurantFlow(
+        'status refresh failed orderId=${widget.order.id} error=$error',
+      );
+    }
+  }
+
+  void _showMapFallback({
+    required String address,
+    required double latitude,
+    required double longitude,
+  }) {
+    final hasAddress = address.trim().isNotEmpty;
+    final fallbackText = hasAddress
+        ? address.trim()
+        : '${latitude.toStringAsFixed(6)}, ${longitude.toStringAsFixed(6)}';
+    showPremiumBottomSheet(
+      context: context,
+      title: 'Route details',
+      subtitle:
+          'Maps are unavailable right now. Use this destination in your map app.',
+      child: SelectableText(
+        fallbackText,
+        style: Theme.of(context).textTheme.bodyLarge,
+      ),
+    );
+  }
+
+  void _debugStatus(String status, int? statusCode) {
+    _debugRestaurantFlow(
+      'status refresh orderId=${widget.order.id} status=$status '
+      'http=${statusCode ?? 'unknown'} assignmentType=${widget.order.assignmentType}',
+    );
+  }
+
+  void _debugAction(String nextStatus, String currentStatus) {
+    _debugRestaurantFlow(
+      'action orderId=${widget.order.id} currentStatus=$currentStatus '
+      'nextStatus=$nextStatus endpoint=/api/v1/riders/orders/:orderId/status',
+    );
+  }
+
+  void _debugActionResult(String nextStatus, int? statusCode) {
+    _debugRestaurantFlow(
+      'action result orderId=${widget.order.id} nextStatus=$nextStatus '
+      'http=${statusCode ?? 'unknown'}',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final order = widget.order;
+    final currentStatus = (_canonicalStatus ?? _statusFromStage(order.status))
+        .toLowerCase();
     final isPickedUp =
-        order.status == DeliveryStage.pickedUp ||
-        order.status == DeliveryStage.onTheWay ||
-        order.status == DeliveryStage.reachedCustomer;
+        currentStatus == 'picked_up' ||
+        currentStatus == 'on_the_way' ||
+        currentStatus == 'out_for_delivery';
     final isAssigned =
-        order.status == DeliveryStage.assigned ||
-        order.status == DeliveryStage.accepted ||
-        order.status == DeliveryStage.reachedRestaurant;
+        currentStatus == 'rider_assigned' ||
+        currentStatus == 'rider_arrived_restaurant';
+    final isDelivered = currentStatus == 'delivered';
     final canCallRestaurant = order.restaurantPhone.trim().isNotEmpty;
-    final canNavigatePickup = _hasUsableCoordinate(
+    final canCallCustomer = order.customerPhone.trim().isNotEmpty;
+    final canNavigatePickup = _hasNavigationTarget(
       order.restaurantLat,
       order.restaurantLng,
+      order.pickupAddress,
     );
-    final canCallCustomer = order.customerPhone.trim().isNotEmpty;
-    final canNavigateDrop = _hasUsableCoordinate(
+    final canNavigateDrop = _hasNavigationTarget(
       order.deliveryLat,
       order.deliveryLng,
+      order.dropAddress,
     );
 
     return PremiumScaffold(
@@ -168,7 +320,7 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // ── Status Banner ─────────────────────────
-            if (order.status == DeliveryStage.delivered)
+            if (isDelivered)
               Container(
                 margin: const EdgeInsets.only(bottom: AppSpacing.lg),
                 padding: const EdgeInsets.all(AppSpacing.md),
@@ -240,7 +392,8 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
                       context,
                     ).textTheme.bodyMedium?.copyWith(color: AppColors.smoke),
                   ),
-                  if (canCallRestaurant || canNavigatePickup) ...[
+                  if (canCallRestaurant ||
+                      (isAssigned && canNavigatePickup)) ...[
                     const SizedBox(height: AppSpacing.lg),
                     Row(
                       children: [
@@ -250,23 +403,26 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
                               onPressed: () =>
                                   _launchPhone(order.restaurantPhone),
                               icon: const Icon(Icons.phone),
-                              label: const Text('Call'),
+                              label: const Text('Call restaurant'),
                               style: OutlinedButton.styleFrom(
                                 minimumSize: const Size.fromHeight(48),
                               ),
                             ),
                           ),
-                        if (canCallRestaurant && canNavigatePickup)
+                        if (canCallRestaurant &&
+                            isAssigned &&
+                            canNavigatePickup)
                           const SizedBox(width: AppSpacing.sm),
-                        if (canNavigatePickup)
+                        if (isAssigned && canNavigatePickup)
                           Expanded(
                             child: FilledButton.icon(
                               onPressed: () => _launchMaps(
                                 order.restaurantLat,
                                 order.restaurantLng,
+                                address: order.pickupAddress,
                               ),
                               icon: const Icon(Icons.map),
-                              label: const Text('Navigate'),
+                              label: const Text('Route'),
                               style: FilledButton.styleFrom(
                                 minimumSize: const Size.fromHeight(48),
                               ),
@@ -351,7 +507,7 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
                       ),
                     ),
                   ],
-                  if (canCallCustomer || canNavigateDrop) ...[
+                  if (canCallCustomer || (isPickedUp && canNavigateDrop)) ...[
                     const SizedBox(height: AppSpacing.lg),
                     Row(
                       children: [
@@ -367,17 +523,18 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
                               ),
                             ),
                           ),
-                        if (canCallCustomer && canNavigateDrop)
+                        if (canCallCustomer && isPickedUp && canNavigateDrop)
                           const SizedBox(width: AppSpacing.sm),
-                        if (canNavigateDrop)
+                        if (isPickedUp && canNavigateDrop)
                           Expanded(
                             child: FilledButton.icon(
                               onPressed: () => _launchMaps(
                                 order.deliveryLat,
                                 order.deliveryLng,
+                                address: order.dropAddress,
                               ),
                               icon: const Icon(Icons.map),
-                              label: const Text('Navigate'),
+                              label: const Text('Route'),
                               style: FilledButton.styleFrom(
                                 minimumSize: const Size.fromHeight(48),
                               ),
@@ -491,7 +648,7 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
                   backgroundColor: AppColors.riderPrimary,
                 ),
                 child: const Text(
-                  'Mark Picked Up / Start Delivery',
+                  'Confirm Pickup',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               )
@@ -524,4 +681,89 @@ bool _hasUsableCoordinate(double latitude, double longitude) {
       longitude <= 180 &&
       latitude != 0 &&
       longitude != 0;
+}
+
+bool _hasNavigationTarget(double latitude, double longitude, String address) {
+  final normalizedAddress = address.trim().toLowerCase();
+  final hasAddress =
+      normalizedAddress.isNotEmpty &&
+      !normalizedAddress.contains('not available');
+  return _hasUsableCoordinate(latitude, longitude) || hasAddress;
+}
+
+bool _canMarkPickedUp(String status) {
+  return status == 'ready' ||
+      status == 'rider_assigned' ||
+      status == 'rider_arrived_restaurant';
+}
+
+bool _canMarkDelivered(String status) {
+  return status == 'picked_up' || status == 'on_the_way';
+}
+
+bool _isCashPayment(String paymentMethod) {
+  final normalized = paymentMethod.trim().toLowerCase();
+  return normalized == 'cash' || normalized == 'cod';
+}
+
+String _statusFromStage(DeliveryStage stage) {
+  switch (stage) {
+    case DeliveryStage.assigned:
+    case DeliveryStage.accepted:
+      return 'rider_assigned';
+    case DeliveryStage.reachedRestaurant:
+      return 'rider_arrived_restaurant';
+    case DeliveryStage.pickedUp:
+      return 'picked_up';
+    case DeliveryStage.onTheWay:
+    case DeliveryStage.reachedCustomer:
+      return 'on_the_way';
+    case DeliveryStage.delivered:
+      return 'delivered';
+  }
+}
+
+String _statusErrorMessage(ApiException error) {
+  if (error.statusCode == 409 || error.statusCode == 400) {
+    return 'Order status changed. Refreshing the valid next step.';
+  }
+  if (error.statusCode == 0) {
+    return 'Network unavailable. Please try again.';
+  }
+  return 'Could not update order. Please retry.';
+}
+
+Map<String, dynamic> _asMap(Object? value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return value.map((key, value) => MapEntry('$key', value));
+  }
+  return const <String, dynamic>{};
+}
+
+Object? _firstPresent(List<Object?> values) {
+  for (final value in values) {
+    if (value == null) {
+      continue;
+    }
+    if (value is String && value.trim().isEmpty) {
+      continue;
+    }
+    return value;
+  }
+  return null;
+}
+
+String _asString(Object? value, {String fallback = ''}) {
+  final present = _firstPresent([value]);
+  return present == null ? fallback : '$present'.trim();
+}
+
+void _debugRestaurantFlow(String message) {
+  assert(() {
+    debugPrint('[RestaurantRiderOrder] $message');
+    return true;
+  }());
 }

@@ -793,10 +793,9 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
 
   void _onNewDeliveryRequest(RiderOrderRequestModel request) {
     final requestKey = _requestKey(request);
-    final updatedRequests = _mergePendingRequests(
-      state.pendingRequests,
-      [request],
-    );
+    final updatedRequests = _mergePendingRequests(state.pendingRequests, [
+      request,
+    ]);
     if (updatedRequests.length == state.pendingRequests.length &&
         state.pendingRequests.any((item) => _requestKey(item) == requestKey)) {
       _debug(
@@ -928,7 +927,10 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       }
     } on ApiException catch (error) {
       if (error.statusCode == 404) {
-        state = state.copyWith(clearActiveOrder: true, clearActiveOrderId: true);
+        state = state.copyWith(
+          clearActiveOrder: true,
+          clearActiveOrderId: true,
+        );
         _debug('active order refresh empty status=404');
         return;
       }
@@ -948,9 +950,8 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     }
   }
 
-  Future<void> refreshActiveOrder() => fetchActiveOrder(
-    state.activeOrderId ?? state.activeOrder?.orderId ?? 0,
-  );
+  Future<void> refreshActiveOrder() =>
+      fetchActiveOrder(state.activeOrderId ?? state.activeOrder?.orderId ?? 0);
 
   Future<void> acceptRequest(int requestId) async {
     try {
@@ -1018,33 +1019,96 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     }
   }
 
-  Future<void> updateDeliveryStatus(String newStatus) async {
-    if (state.activeOrderId == null) return;
+  Future<void> updateDeliveryStatus(
+    String newStatus, {
+    bool? paymentCollected,
+    String? notes,
+  }) async {
+    final currentOrderId = state.activeOrderId ?? state.activeOrder?.orderId;
+    if (currentOrderId == null || currentOrderId <= 0) return;
 
     try {
-      final api = ref.read(riderBackendApiProvider).delivery;
-      final orderIdStr = state.activeOrderId!.toString();
+      final previousOrder = state.activeOrder;
+      await fetchActiveOrder(currentOrderId);
+      final activeOrder = state.activeOrder ?? previousOrder;
+      final resolvedOrderId =
+          state.activeOrderId ?? activeOrder?.orderId ?? currentOrderId;
+      final orderIdStr = resolvedOrderId.toString();
+      final isRestaurantOwned = activeOrder?.isRestaurantOwned ?? false;
+      final useLegacyEndpoint =
+          !isRestaurantOwned &&
+          _isLegacySharedOrderStatus(activeOrder?.deliveryStatus) &&
+          activeOrder?.deliveryOrderId == null;
 
-      switch (newStatus) {
-        case 'rider_arrived_restaurant':
-          await api.arrivedAtRestaurant(orderIdStr);
-          break;
-        case 'picked_up':
-          await api.pickedUp(orderIdStr);
-          break;
-        case 'on_the_way':
-          await api.arrivedAtCustomer(orderIdStr);
-          break;
-        case 'delivered':
-          await api.delivered(orderIdStr);
-          break;
-        default:
-          await ref
-              .read(riderDeliveryApiServiceProvider)
-              .updateDeliveryStatus(
-                orderId: state.activeOrderId!,
-                deliveryStatus: newStatus,
-              );
+      _debug(
+        'status action mode=${isRestaurantOwned ? 'restaurant_owned' : 'platform'} '
+        'orderId=$resolvedOrderId current=${activeOrder?.deliveryStatus ?? 'unknown'} '
+        'next=$newStatus assignmentType=${activeOrder?.assignmentType ?? 'unknown'} '
+        'deliveryOrderId=${activeOrder?.deliveryOrderId ?? 'none'}',
+      );
+
+      if (!useLegacyEndpoint) {
+        final response = await ref
+            .read(riderDeliveryApiServiceProvider)
+            .updateDeliveryStatus(
+              orderId: resolvedOrderId,
+              deliveryStatus: newStatus,
+              paymentCollected: paymentCollected,
+              notes: notes,
+            );
+        _debug(
+          'status action result endpoint=/api/v1/riders/orders/:orderId/status '
+          'http=${response.statusCode ?? 'unknown'} orderId=$resolvedOrderId next=$newStatus',
+        );
+      } else {
+        final api = ref.read(riderBackendApiProvider).delivery;
+        switch (newStatus) {
+          case 'rider_arrived_restaurant':
+            final response = await api.arrivedAtRestaurant(orderIdStr);
+            _debug(
+              'status action result endpoint=legacy-arrived-restaurant '
+              'http=${response.statusCode ?? 'unknown'}',
+            );
+            break;
+          case 'picked_up':
+            final response = await api.pickedUp(orderIdStr);
+            _debug(
+              'status action result endpoint=legacy-picked-up '
+              'http=${response.statusCode ?? 'unknown'}',
+            );
+            break;
+          case 'on_the_way':
+            final response = await api.arrivedAtCustomer(orderIdStr);
+            _debug(
+              'status action result endpoint=legacy-arrived-customer '
+              'http=${response.statusCode ?? 'unknown'}',
+            );
+            break;
+          case 'delivered':
+            final response = await api.delivered(
+              orderIdStr,
+              paymentCollected: paymentCollected,
+              notes: notes,
+            );
+            _debug(
+              'status action result endpoint=legacy-delivered '
+              'http=${response.statusCode ?? 'unknown'}',
+            );
+            break;
+          default:
+            final response = await ref
+                .read(riderDeliveryApiServiceProvider)
+                .updateDeliveryStatus(
+                  orderId: resolvedOrderId,
+                  deliveryStatus: newStatus,
+                  paymentCollected: paymentCollected,
+                  notes: notes,
+                );
+            _debug(
+              'status action result endpoint=/api/v1/riders/orders/:orderId/status '
+              'http=${response.statusCode ?? 'unknown'} orderId=$resolvedOrderId next=$newStatus',
+            );
+        }
       }
 
       if (newStatus == 'delivered') {
@@ -1053,19 +1117,26 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
           clearActiveOrderId: true,
           isAvailable: state.isOnline,
         );
+        ref.invalidate(activeOrdersProvider);
+        ref.invalidate(deliveredOrdersProvider);
         if (state.isOnline) {
           await _startLocationTracking(requestPermission: false);
         }
       } else {
-        await fetchActiveOrder(state.activeOrderId!);
+        await fetchActiveOrder(resolvedOrderId);
       }
     } on ApiException catch (e) {
       if (e.statusCode == 409 || e.statusCode == 400) {
         // State mismatch with backend, refresh active order.
-        await fetchActiveOrder(state.activeOrderId!);
+        await fetchActiveOrder(currentOrderId);
       }
+      _debug(
+        'status action failed status=${e.statusCode ?? 'unknown'} '
+        'code=${e.errorCode ?? 'none'} next=$newStatus',
+      );
       rethrow;
     } catch (e) {
+      _debug('status action failed error=$e next=$newStatus');
       rethrow;
     }
   }
@@ -1086,6 +1157,16 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
         unawaited(refreshPendingRequests());
       }
     });
+  }
+
+  bool _isLegacySharedOrderStatus(String? status) {
+    switch ((status ?? '').trim().toLowerCase()) {
+      case 'ready':
+      case 'out_for_delivery':
+        return true;
+      default:
+        return false;
+    }
   }
 
   void _stopFallbackPolling({bool updateState = true}) {
