@@ -132,14 +132,7 @@ class ApiRiderRepository implements RiderRepository {
       payoutHistory: const [],
     );
 
-    final payoutSummary = PayoutSummary(
-      walletBalance: _asDouble(earningsSummaryData['wallet_balance']),
-      pendingPayout: _asDouble(earningsSummaryData['pending_payout']),
-      settledPayout: _asDouble(earningsSummaryData['settled_payout']),
-      bankAccountMasked:
-          _stringOrNull(earningsSummaryData['bank_account_masked']) ?? '',
-      transactions: const [],
-    );
+
 
     // Ratings — no backend endpoint, use data from profile
     final averageRating = _asDouble(rider['avg_rating'] ?? rider['rating_avg']);
@@ -221,7 +214,6 @@ class ApiRiderRepository implements RiderRepository {
       earnings: earnings,
       notifications: notifications,
       history: history,
-      payoutSummary: payoutSummary,
       reviews: reviewInsights,
       supportFaqs: supportFaqs,
       shiftSummary: shiftSummary,
@@ -801,32 +793,7 @@ class ApiRiderRepository implements RiderRepository {
     );
   }
 
-  PayoutTransaction _mapWalletTransaction(dynamic rawEntry) {
-    final entry = _asMap(rawEntry);
-    final createdAt = _readDateTime(entry['created_at']) ?? DateTime.now();
-    return PayoutTransaction(
-      id:
-          _firstNonEmptyString([
-            _stringOrNull(entry['id']),
-            _stringOrNull(entry['transaction_id']),
-          ]) ??
-          'wallet-$createdAt',
-      title:
-          _firstNonEmptyString([
-            _stringOrNull(entry['description']),
-            _stringOrNull(entry['reference_id']),
-          ]) ??
-          'Wallet transaction',
-      amount: _asDouble(entry['amount']),
-      status:
-          _firstNonEmptyString([
-            _stringOrNull(entry['status']),
-            _stringOrNull(entry['type']),
-          ]) ??
-          'POSTED',
-      createdAt: createdAt,
-    );
-  }
+
 
   ShiftSummary _buildShiftSummary({
     required DateTime now,
@@ -906,34 +873,7 @@ class ApiRiderRepository implements RiderRepository {
         .toList();
   }
 
-  List<EarningsPoint> _buildPayoutHistoryPoints(
-    List<Map<String, dynamic>> payoutRequests,
-    List<PayoutTransaction> walletTransactions,
-  ) {
-    if (payoutRequests.isNotEmpty) {
-      return payoutRequests
-          .take(4)
-          .map(
-            (entry) => EarningsPoint(
-              label: DateFormat(
-                'dd MMM',
-              ).format(_readDateTime(entry['requested_at']) ?? DateTime.now()),
-              amount: _asDouble(entry['amount']),
-            ),
-          )
-          .toList();
-    }
 
-    return walletTransactions
-        .take(4)
-        .map(
-          (entry) => EarningsPoint(
-            label: DateFormat('dd MMM').format(entry.createdAt),
-            amount: entry.amount,
-          ),
-        )
-        .toList();
-  }
 
   List<Map<String, dynamic>> _extractRecords(Map<String, dynamic> data) {
     return _asList(

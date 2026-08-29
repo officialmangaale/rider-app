@@ -11,6 +11,7 @@ import '../../core/router/app_routes.dart';
 import '../../core/services/app_preferences.dart';
 import '../../core/services/map_launcher_service.dart';
 import '../../data/services/rider_backend_api.dart';
+import 'auth_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Foundation providers — SharedPreferences, ApiClient, Backend API
@@ -32,6 +33,11 @@ final apiClientProvider = Provider<ApiClient>((ref) {
     baseUrl: AppConstants.apiBaseUrl,
     httpClient: createPlatformHttpClient(),
     tokenStore: prefs,
+    onUnauthorized: () {
+      Future.microtask(() {
+        ref.read(sessionControllerProvider.notifier).logout();
+      });
+    },
   );
 });
 

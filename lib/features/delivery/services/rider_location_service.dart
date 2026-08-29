@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
 
 enum RiderLocationReadiness {
@@ -216,6 +217,16 @@ class RiderLocationService {
       (_) => unawaited(_pollCurrentPosition(settings)),
     );
 
+    final service = FlutterBackgroundService();
+    if (isActiveDelivery) {
+      if (!await service.isRunning()) {
+        await service.startService();
+      }
+      service.invoke('startTracking');
+    } else {
+      service.invoke('stopService');
+    }
+
     _debug(
       'tracking started activeDelivery=$isActiveDelivery interval=${pollInterval.inSeconds}s',
     );
@@ -248,6 +259,7 @@ class RiderLocationService {
     _positionStream = null;
     _pollTimer = null;
     _isPolling = false;
+    FlutterBackgroundService().invoke('stopService');
   }
 
   void dispose() => stopTracking();

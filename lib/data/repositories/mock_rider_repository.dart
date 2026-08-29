@@ -40,7 +40,6 @@ class MockRiderRepository implements RiderRepository {
     final history = (results[5] as List<dynamic>)
         .map((item) => DeliveryRecord.fromJson(item as Map<String, dynamic>))
         .toList();
-    final payouts = PayoutSummary.fromJson(results[6] as Map<String, dynamic>);
     final reviews = ReviewInsights.fromJson(results[7] as Map<String, dynamic>);
     final supportFaqs = (results[8] as List<dynamic>)
         .map((item) => SupportFaq.fromJson(item as Map<String, dynamic>))
@@ -51,7 +50,6 @@ class MockRiderRepository implements RiderRepository {
       earnings: earnings,
       notifications: notifications,
       history: history,
-      payoutSummary: payouts,
       reviews: reviews,
       supportFaqs: supportFaqs,
       shiftSummary: ShiftSummary.fromJson({

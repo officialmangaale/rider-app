@@ -7,6 +7,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'app/app.dart';
 import 'presentation/providers/app_providers.dart';
+import 'features/delivery/services/background_location_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -21,6 +22,8 @@ Future<void> main() async {
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   final preferences = await SharedPreferences.getInstance();
+  
+  await initializeBackgroundService();
 
   runApp(
     ProviderScope(

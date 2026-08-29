@@ -84,7 +84,7 @@ final deliveredOrdersProvider = FutureProvider.autoDispose<List<DeliveryRecord>>
     final items = _extractList(response.data);
     final orders = _mapList(items, _deliveryRecordFromPayload);
     if (orders.isEmpty) {
-      return _legacyDeliveredOrders(api);
+      return await _legacyDeliveredOrders(api);
     }
     _debugLog(
       '$endpoint status=${response.statusCode ?? 'unknown'} count=${orders.length} empty=${orders.isEmpty}',
@@ -95,7 +95,7 @@ final deliveredOrdersProvider = FutureProvider.autoDispose<List<DeliveryRecord>>
       '$endpoint status=${error.statusCode ?? 'unknown'} error=${error.errorCode ?? error.message}',
     );
     if (error.statusCode == 404) {
-      return _legacyDeliveredOrders(api);
+      return await _legacyDeliveredOrders(api);
     }
     rethrow;
   }

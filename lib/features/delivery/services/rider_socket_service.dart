@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -28,6 +29,9 @@ class RiderSocketService {
   Timer? _reconnectTimer;
   bool _isConnected = false;
   bool _shouldReconnect = true;
+  int _reconnectAttempt = 0;
+  final Random _random = Random();
+  final Set<String> _seenEventIds = <String>{};
 
   void connect() {
     if (_isConnected || token.isEmpty) {
@@ -40,21 +44,24 @@ class RiderSocketService {
 
   void _connectInternal() {
     try {
-      final uri = Uri.parse(AppConstants.riderWsUrl).replace(queryParameters: {
-        'token': token,
-      });
+      final uri = Uri.parse(
+        AppConstants.riderWsUrl,
+      ).replace(queryParameters: {'token': token});
       _channel = WebSocketChannel.connect(uri);
 
       _debug('connecting tokenPresent=${token.isNotEmpty}');
       unawaited(
-        _channel!.ready.then((_) {
-          _setConnected(true);
-          _debug('connected');
-        }).catchError((error) {
-          _setConnected(false);
-          _debug('connection failed error=$error');
-          _scheduleReconnect();
-        }),
+        _channel!.ready
+            .then((_) {
+              _reconnectAttempt = 0;
+              _setConnected(true);
+              _debug('connected');
+            })
+            .catchError((error) {
+              _setConnected(false);
+              _debug('connection failed error=$error');
+              _scheduleReconnect();
+            }),
       );
 
       _channel!.stream.listen(
@@ -83,14 +90,28 @@ class RiderSocketService {
   void _scheduleReconnect() {
     if (!_shouldReconnect) return;
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 5), () {
-      _connectInternal();
-    });
+    final exponent = min(_reconnectAttempt++, 8);
+    final baseMilliseconds = min(1000 * (1 << exponent), 30000);
+    final jitter = _random.nextInt(max(250, baseMilliseconds ~/ 4));
+    _reconnectTimer = Timer(
+      Duration(milliseconds: baseMilliseconds + jitter),
+      () {
+        _connectInternal();
+      },
+    );
   }
 
   void _handleMessage(dynamic message) {
     try {
       final decoded = jsonDecode(message as String) as Map<String, dynamic>;
+      final eventId = '${decoded['event_id'] ?? ''}'.trim();
+      if (eventId.isNotEmpty) {
+        if (_seenEventIds.contains(eventId)) return;
+        _seenEventIds.add(eventId);
+        if (_seenEventIds.length > 2000) {
+          _seenEventIds.remove(_seenEventIds.first);
+        }
+      }
       final type = decoded['type'] as String?;
       final normalizedType = (type ?? '').trim().toUpperCase();
       final data = _asMap(decoded['data']);
@@ -142,6 +163,8 @@ class RiderSocketService {
     _shouldReconnect = false;
     _reconnectTimer?.cancel();
     _channel?.sink.close();
+    _seenEventIds.clear();
+    _reconnectAttempt = 0;
     _setConnected(false);
   }
 

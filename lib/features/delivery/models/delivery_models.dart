@@ -142,6 +142,9 @@ class ActiveDeliveryOrderModel {
     this.paymentMode,
     this.amount,
     this.items,
+    this.itemsSummary,
+    this.distanceKm = 0.0,
+    this.etaMinutes = 0,
     this.assignmentType = 'platform',
     this.restaurantOwned = false,
   });
@@ -162,6 +165,9 @@ class ActiveDeliveryOrderModel {
   final String? paymentMode;
   final double? amount;
   final List<dynamic>? items;
+  final String? itemsSummary;
+  final double distanceKm;
+  final int etaMinutes;
   final String assignmentType;
   final bool restaurantOwned;
 
@@ -202,6 +208,9 @@ class ActiveDeliveryOrderModel {
       paymentMode: _asString(json['payment_mode'] ?? json['payment_method']),
       amount: _activeOrderAmount(json),
       items: json['items'] as List<dynamic>?,
+      itemsSummary: json['items_summary'] as String?,
+      distanceKm: _asDouble(json['distance_km']),
+      etaMinutes: _asInt(json['eta_minutes']),
       assignmentType: _asString(json['assignment_type'], fallback: 'platform'),
       restaurantOwned:
           _asBool(json['restaurant_owned']) ??
