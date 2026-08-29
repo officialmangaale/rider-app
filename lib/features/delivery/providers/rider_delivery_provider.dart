@@ -213,7 +213,6 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   static const _idleSendInterval = Duration(seconds: 30);
   static const _activeSendInterval = Duration(seconds: 15);
   static const _duplicateHeartbeatInterval = Duration(minutes: 2);
-  static const _fallbackPollInterval = Duration(seconds: 15);
   static const _idleDistanceMeters = 25.0;
   static const _activeDistanceMeters = 10.0;
 
@@ -223,7 +222,6 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   bool _desiredTracking = false;
   bool _isForeground = true;
   bool _bootstrapInFlight = false;
-  Timer? _fallbackPollTimer;
 
   @override
   RiderDeliveryState build() {
@@ -1142,21 +1140,11 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   }
 
   void _startFallbackPolling() {
-    if (_fallbackPollTimer != null) {
-      state = state.copyWith(pollingFallbackActive: true);
-      return;
+    // Socket reconnect is unbounded. Reconcile once when it reconnects
+    // instead of running a second polling listener in parallel.
+    if (state.pollingFallbackActive) {
+      state = state.copyWith(pollingFallbackActive: false);
     }
-    _debug('fallback polling started');
-    state = state.copyWith(pollingFallbackActive: true);
-    _fallbackPollTimer = Timer.periodic(_fallbackPollInterval, (_) {
-      if (!state.isOnline) {
-        _stopFallbackPolling();
-        return;
-      }
-      if (!state.socketConnected) {
-        unawaited(refreshPendingRequests());
-      }
-    });
   }
 
   bool _isLegacySharedOrderStatus(String? status) {
@@ -1170,12 +1158,9 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   }
 
   void _stopFallbackPolling({bool updateState = true}) {
-    _fallbackPollTimer?.cancel();
-    _fallbackPollTimer = null;
     if (updateState && state.pollingFallbackActive) {
       state = state.copyWith(pollingFallbackActive: false);
     }
-    _debug('fallback polling stopped');
   }
 
   List<RiderOrderRequestModel> _mergePendingRequests(

@@ -37,7 +37,6 @@ class AppRoutes {
   static const notifications = '/notifications';
   static const support = '/support';
   static const availability = '/availability';
-  static const wallet = '/wallet';
   static const ratings = '/ratings';
   static const settings = '/settings';
   static const restaurantOrderBase = '/restaurant-order';
@@ -167,7 +166,6 @@ class AppRoutes {
       notifications,
       support,
       availability,
-      wallet,
       ratings,
       settings,
       '$restaurantOrderBase/:id',

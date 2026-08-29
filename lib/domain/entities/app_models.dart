@@ -955,106 +955,6 @@ class AppNotificationItem {
     );
   }
 }
-
-class PayoutTransaction {
-  const PayoutTransaction({
-    required this.id,
-    required this.title,
-    required this.amount,
-    required this.status,
-    required this.createdAt,
-  });
-
-  final String id;
-  final String title;
-  final double amount;
-  final String status;
-  final DateTime createdAt;
-
-  factory PayoutTransaction.fromJson(Map<String, dynamic> json) {
-    return PayoutTransaction(
-      id: _asString(
-        _firstPresent([json['id'], json['transaction_id'], json['payout_id']]),
-        fallback: 'payout-${DateTime.now().microsecondsSinceEpoch}',
-      ),
-      title: _asString(
-        _firstPresent([json['title'], json['description'], json['type']]),
-        fallback: 'Payout activity',
-      ),
-      amount: _asDouble(json['amount']),
-      status: _asString(json['status'], fallback: 'POSTED'),
-      createdAt: _asDateTime(
-        _firstPresent([
-          json['createdAt'],
-          json['created_at'],
-          json['requested_at'],
-        ]),
-      ),
-    );
-  }
-}
-
-class PayoutSummary {
-  const PayoutSummary({
-    required this.walletBalance,
-    required this.pendingPayout,
-    required this.settledPayout,
-    required this.bankAccountMasked,
-    required this.transactions,
-  });
-
-  final double walletBalance;
-  final double pendingPayout;
-  final double settledPayout;
-  final String bankAccountMasked;
-  final List<PayoutTransaction> transactions;
-
-  factory PayoutSummary.fromJson(Map<String, dynamic> json) {
-    return PayoutSummary(
-      walletBalance: _asDouble(
-        _firstPresent([json['walletBalance'], json['wallet_balance']]),
-      ),
-      pendingPayout: _asDouble(
-        _firstPresent([json['pendingPayout'], json['pending_payout']]),
-      ),
-      settledPayout: _asDouble(
-        _firstPresent([json['settledPayout'], json['settled_payout']]),
-      ),
-      bankAccountMasked: _asString(
-        _firstPresent([json['bankAccountMasked'], json['bank_account_masked']]),
-      ),
-      transactions: _payoutTransactionsFromJson(json['transactions']),
-    );
-  }
-
-  PayoutSummary copyWith({
-    double? walletBalance,
-    double? pendingPayout,
-    double? settledPayout,
-    String? bankAccountMasked,
-    List<PayoutTransaction>? transactions,
-  }) {
-    return PayoutSummary(
-      walletBalance: walletBalance ?? this.walletBalance,
-      pendingPayout: pendingPayout ?? this.pendingPayout,
-      settledPayout: settledPayout ?? this.settledPayout,
-      bankAccountMasked: bankAccountMasked ?? this.bankAccountMasked,
-      transactions: transactions ?? this.transactions,
-    );
-  }
-}
-
-List<PayoutTransaction> _payoutTransactionsFromJson(Object? value) {
-  if (value is! List) {
-    return const <PayoutTransaction>[];
-  }
-  return value
-      .map(_asMap)
-      .where((item) => item.isNotEmpty)
-      .map(PayoutTransaction.fromJson)
-      .toList(growable: false);
-}
-
 class RiderReview {
   const RiderReview({
     required this.id,
@@ -1192,7 +1092,6 @@ class RiderHubState {
     required this.earnings,
     required this.notifications,
     required this.history,
-    required this.payoutSummary,
     required this.reviews,
     required this.supportFaqs,
     required this.shiftSummary,
@@ -1205,7 +1104,6 @@ class RiderHubState {
   final EarningsReport earnings;
   final List<AppNotificationItem> notifications;
   final List<DeliveryRecord> history;
-  final PayoutSummary payoutSummary;
   final ReviewInsights reviews;
   final List<SupportFaq> supportFaqs;
   final ShiftSummary shiftSummary;
@@ -1218,7 +1116,6 @@ class RiderHubState {
     EarningsReport? earnings,
     List<AppNotificationItem>? notifications,
     List<DeliveryRecord>? history,
-    PayoutSummary? payoutSummary,
     ReviewInsights? reviews,
     List<SupportFaq>? supportFaqs,
     ShiftSummary? shiftSummary,
@@ -1232,7 +1129,6 @@ class RiderHubState {
       earnings: earnings ?? this.earnings,
       notifications: notifications ?? this.notifications,
       history: history ?? this.history,
-      payoutSummary: payoutSummary ?? this.payoutSummary,
       reviews: reviews ?? this.reviews,
       supportFaqs: supportFaqs ?? this.supportFaqs,
       shiftSummary: shiftSummary ?? this.shiftSummary,

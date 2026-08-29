@@ -87,6 +87,7 @@ class ApiClient {
     required this.tokenStore,
     this.timeout = const Duration(seconds: 30),
     this.maxRetries = 1,
+    this.onUnauthorized,
   });
 
   final String baseUrl;
@@ -94,6 +95,7 @@ class ApiClient {
   final ApiTokenStore tokenStore;
   final Duration timeout;
   final int maxRetries;
+  final VoidCallback? onUnauthorized;
 
   Future<bool>? _refreshFuture;
   int _requestCounter = 0;
@@ -479,7 +481,11 @@ class ApiClient {
           hasRetried: true,
           retryCount: retryCount,
         );
+      } else {
+        onUnauthorized?.call();
       }
+    } else if (requiresAuth && raw.statusCode == 401) {
+      onUnauthorized?.call();
     }
 
     // Retry on 5xx server errors (up to maxRetries).

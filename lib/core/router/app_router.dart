@@ -25,7 +25,6 @@ import '../../features/settings/presentation/settings_screen.dart';
 import '../../features/shell/presentation/app_shell_screen.dart';
 import '../../features/splash/presentation/splash_screen.dart';
 import '../../features/support/presentation/support_screen.dart';
-import '../../features/wallet/presentation/wallet_screen.dart';
 import '../../presentation/providers/rider_compliance_provider.dart';
 import 'app_routes.dart';
 
@@ -259,10 +258,7 @@ GoRouter buildAppRouter({
         pageBuilder: (context, state) =>
             buildPage(const AvailabilityScreen(), state),
       ),
-      GoRoute(
-        path: AppRoutes.wallet,
-        pageBuilder: (context, state) => buildPage(const WalletScreen(), state),
-      ),
+
       GoRoute(
         path: AppRoutes.ratings,
         pageBuilder: (context, state) =>

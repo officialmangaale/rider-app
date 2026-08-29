@@ -17,19 +17,16 @@ import 'core_providers.dart';
 class EarningsState {
   const EarningsState({
     this.earnings,
-    this.payoutSummary,
     this.reviews,
     this.totalEarnings = 0,
   });
 
   final EarningsReport? earnings;
-  final PayoutSummary? payoutSummary;
   final ReviewInsights? reviews;
   final double totalEarnings;
 
   bool get hasAnyEarnings {
     final report = earnings;
-    final payout = payoutSummary;
     return totalEarnings > 0 ||
         (report != null &&
             (report.daily > 0 ||
@@ -40,23 +37,16 @@ class EarningsState {
                 report.tips > 0 ||
                 report.bonus > 0 ||
                 report.trend.any((point) => point.amount > 0) ||
-                report.payoutHistory.any((point) => point.amount > 0))) ||
-        (payout != null &&
-            (payout.walletBalance > 0 ||
-                payout.pendingPayout > 0 ||
-                payout.settledPayout > 0 ||
-                payout.transactions.isNotEmpty));
+                report.payoutHistory.any((point) => point.amount > 0)));
   }
 
   EarningsState copyWith({
     EarningsReport? earnings,
-    PayoutSummary? payoutSummary,
     ReviewInsights? reviews,
     double? totalEarnings,
   }) {
     return EarningsState(
       earnings: earnings ?? this.earnings,
-      payoutSummary: payoutSummary ?? this.payoutSummary,
       reviews: reviews ?? this.reviews,
       totalEarnings: totalEarnings ?? this.totalEarnings,
     );
@@ -94,7 +84,6 @@ class EarningsController extends AsyncNotifier<EarningsState> {
     );
 
     var earningsReport = EarningsReport.fromJson(summaryData);
-    final payoutSummary = PayoutSummary.fromJson(summaryData);
     var totalEarnings = _asDouble(
       _firstPresent([
         summaryData['total_earnings'],
@@ -157,11 +146,10 @@ class EarningsController extends AsyncNotifier<EarningsState> {
     _debugEarnings(
       'earnings parsed total=$totalEarnings empty=${totalEarnings <= 0 && !earningsReport.trend.any((point) => point.amount > 0)}',
     );
-    return EarningsState(
-      earnings: earningsReport,
-      payoutSummary: payoutSummary,
-      totalEarnings: totalEarnings,
-    );
+      return EarningsState(
+        earnings: earningsReport,
+        totalEarnings: totalEarnings,
+      );
   }
 
   /// Payout request — not available on backend yet, but kept as stub.

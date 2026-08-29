@@ -120,6 +120,27 @@ class ActiveDeliveryScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.xl),
+            
+            // ── Order items ───────────────────────────────
+            if (order.itemsSummary != null && order.itemsSummary!.trim().isNotEmpty) ...[
+              GlassCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SectionHeader(
+                      title: 'Order items',
+                      subtitle: 'Summary of items to pick up.',
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      order.itemsSummary!,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+            ],
 
             // ── Status timeline ─────────────────────────────
             GlassCard(

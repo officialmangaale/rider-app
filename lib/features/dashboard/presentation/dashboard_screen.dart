@@ -224,8 +224,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 const RiderLocationStatusCard(),
               ],
               if (riderDeliveryState.isOnline &&
-                  !riderDeliveryState.socketConnected &&
-                  riderDeliveryState.pollingFallbackActive) ...[
+                  !riderDeliveryState.socketConnected) ...[
                 const SizedBox(height: AppSpacing.md),
                 GlassCard(
                   accent: AppColors.sky,
@@ -240,7 +239,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(
-                          'Reconnecting live orders. Backup polling is active.',
+                          'Reconnecting live orders…',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),

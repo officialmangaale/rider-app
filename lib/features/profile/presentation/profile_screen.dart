@@ -108,11 +108,6 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: AppSpacing.md),
                   _ActionTile(
-                    icon: Icons.account_balance_wallet_outlined,
-                    label: 'Wallet & payouts',
-                    onTap: () => context.push(AppRoutes.wallet),
-                  ),
-                  _ActionTile(
                     icon: Icons.star_outline_rounded,
                     label: 'Ratings & reviews',
                     onTap: () => context.push(AppRoutes.ratings),

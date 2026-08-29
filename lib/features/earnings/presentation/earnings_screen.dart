@@ -68,18 +68,11 @@ class EarningsScreen extends ConsumerWidget {
             );
           }
 
-          final payout = state.payoutSummary;
           final hasBreakdown =
               earnings.deliveryFees > 0 ||
               earnings.incentives > 0 ||
               earnings.tips > 0 ||
               earnings.bonus > 0;
-          final hasPayoutSummary =
-              payout != null &&
-              (payout.walletBalance > 0 ||
-                  payout.pendingPayout > 0 ||
-                  payout.settledPayout > 0 ||
-                  payout.bankAccountMasked.isNotEmpty);
           final hasTrend =
               earnings.trend.isNotEmpty &&
               earnings.trend.any((point) => point.amount > 0);
@@ -130,38 +123,7 @@ class EarningsScreen extends ConsumerWidget {
                   trend: earnings.trend.map((p) => p.amount).toList(),
                 ),
               ],
-              if (hasPayoutSummary) ...[
-                const SizedBox(height: AppSpacing.xl),
-                GlassCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SectionHeader(
-                        title: 'Payout overview',
-                        subtitle: 'Wallet and settlement status.',
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      _EarningsRow(
-                        label: 'Wallet balance',
-                        value: Formatters.currency(payout.walletBalance),
-                      ),
-                      _EarningsRow(
-                        label: 'Pending',
-                        value: Formatters.currency(payout.pendingPayout),
-                      ),
-                      _EarningsRow(
-                        label: 'Settled',
-                        value: Formatters.currency(payout.settledPayout),
-                      ),
-                      if (payout.bankAccountMasked.isNotEmpty)
-                        _EarningsRow(
-                          label: 'Bank',
-                          value: payout.bankAccountMasked,
-                        ),
-                    ],
-                  ),
-                ),
-              ],
+
               if (hasBreakdown) ...[
                 const SizedBox(height: AppSpacing.xl),
                 GlassCard(
