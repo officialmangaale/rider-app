@@ -277,6 +277,16 @@ class ApiRiderRepository implements RiderRepository {
   }
 
   @override
+  Future<void> deleteAccount() async {
+    try {
+      await _api.rider.deleteAccount();
+    } on ApiException catch (e) {
+      debugPrint('Delete Account failed: $e');
+      rethrow;
+    }
+  }
+
+  @override
   Future<void> logout() async {
     final refreshToken = _preferences.refreshToken;
     try {

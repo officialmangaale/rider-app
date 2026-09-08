@@ -152,6 +152,46 @@ class ProfileScreen extends ConsumerWidget {
                 context.go(AppRoutes.login);
               },
             ),
+            const SizedBox(height: AppSpacing.md),
+            
+            // ── Delete Account ────────────────────────────────
+            SecondaryButton(
+              label: 'Delete Account',
+              icon: Icons.delete_forever_rounded,
+              onPressed: () async {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Delete Account?'),
+                    content: const Text(
+                      'Your account will be scheduled for deletion and permanently removed in 7 days. This action cannot be undone. Are you sure?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        child: const Text('Delete', style: TextStyle(color: Colors.red)),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed != true || !context.mounted) return;
+                
+                try {
+                  await ref.read(sessionControllerProvider.notifier).deleteAccount();
+                  await ref.read(sessionControllerProvider.notifier).logout();
+                  if (!context.mounted) return;
+                  context.go(AppRoutes.login);
+                } catch (e) {
+                  if (context.mounted) {
+                    showLuxurySnackBar(context, 'Failed to delete account: $e', isError: true);
+                  }
+                }
+              },
+            ),
           ],
         ),
       ),

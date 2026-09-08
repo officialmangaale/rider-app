@@ -146,6 +146,11 @@ class SessionController extends Notifier<SessionState> {
     );
   }
 
+  Future<void> deleteAccount() async {
+    final api = ref.read(riderBackendApiProvider);
+    await api.rider.deleteAccount();
+  }
+
   Future<AuthOtpChallenge> requestPasswordReset({required String login}) async {
     final api = ref.read(riderBackendApiProvider);
     final envelope = await api.auth.requestPasswordReset(login: login);

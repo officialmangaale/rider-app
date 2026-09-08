@@ -14,6 +14,7 @@ import '../models/delivery_models.dart';
 import '../services/rider_delivery_api_service.dart';
 import '../services/rider_location_service.dart';
 import '../services/rider_socket_service.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 final riderDeliveryApiServiceProvider = Provider<RiderDeliveryApiService>((
   ref,
@@ -812,6 +813,9 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       seenRequestIds: updatedSeen,
       clearRequestError: true,
     );
+
+    // Play ringtone and vibrate on new delivery request
+    FlutterRingtonePlayer().playNotification();
   }
 
   void _onRequestExpired(int requestId) {
@@ -858,6 +862,9 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     );
     await fetchActiveOrder(orderId);
     ref.invalidate(activeOrdersProvider);
+
+    // Play ringtone and vibrate on order assignment
+    FlutterRingtonePlayer().playNotification();
   }
 
   Future<void> refreshPendingRequests() async {

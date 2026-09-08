@@ -97,6 +97,9 @@ class MockRiderRepository implements RiderRepository {
   }) async {}
 
   @override
+  Future<void> deleteAccount() async {}
+
+  @override
   Future<void> logout() async {}
 
   @override

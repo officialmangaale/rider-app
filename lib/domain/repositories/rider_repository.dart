@@ -23,6 +23,8 @@ abstract class RiderRepository {
     required String newPassword,
   });
 
+  Future<void> deleteAccount();
+
   Future<void> logout();
 
   Future<void> acceptOrder(String assignmentId);

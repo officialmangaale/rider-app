@@ -248,6 +248,10 @@ class RiderApi {
     required Map<String, dynamic> payload,
   }) => updateMe(payload: payload);
 
+  Future<ApiEnvelope<Map<String, dynamic>>> deleteAccount() {
+    return _client.deleteObject('/api/v1/rider/account');
+  }
+
   // --- Vehicle ---
   Future<ApiEnvelope<Map<String, dynamic>>> updateVehicle({
     required VehiclePayload payload,

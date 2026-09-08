@@ -1,6 +1,8 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/router/app_routes.dart';
@@ -201,6 +203,36 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                       icon: Icons.arrow_forward_rounded,
                       expanded: true,
                       onPressed: _submitting ? null : _submit,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    RichText(
+                      textAlign: TextAlign.center,
+                      text: TextSpan(
+                        style: Theme.of(context).textTheme.bodySmall,
+                        children: [
+                          const TextSpan(text: 'By signing up, you agree to our '),
+                          TextSpan(
+                            text: 'Terms & Conditions',
+                            style: TextStyle(
+                              color: Theme.of(context).primaryColor,
+                              decoration: TextDecoration.underline,
+                            ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () => launchUrl(Uri.parse('https://mangaale.com/terms')),
+                          ),
+                          const TextSpan(text: ' and '),
+                          TextSpan(
+                            text: 'Privacy Policy',
+                            style: TextStyle(
+                              color: Theme.of(context).primaryColor,
+                              decoration: TextDecoration.underline,
+                            ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () => launchUrl(Uri.parse('https://mangaale.com/privacy')),
+                          ),
+                          const TextSpan(text: '.'),
+                        ],
+                      ),
                     ),
                   ],
                 ),
