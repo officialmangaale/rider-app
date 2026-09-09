@@ -39,6 +39,7 @@ class AppRoutes {
   static const availability = '/availability';
   static const ratings = '/ratings';
   static const settings = '/settings';
+  static const referrals = '/referrals';
   static const restaurantOrderBase = '/restaurant-order';
 
   static const canonicalRiderRole = 'delivery_driver';

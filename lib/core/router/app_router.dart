@@ -17,6 +17,7 @@ import '../../features/onboarding/presentation/onboarding_screen.dart';
 import '../../features/orders/presentation/orders_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/ratings/presentation/ratings_screen.dart';
+import '../../features/referrals/presentation/referral_screen.dart';
 import '../../features/restaurant_rider/presentation/active_orders_screen.dart';
 import '../../features/restaurant_rider/presentation/delivered_orders_screen.dart';
 import '../../features/restaurant_rider/presentation/order_detail_screen.dart';
@@ -263,6 +264,11 @@ GoRouter buildAppRouter({
         path: AppRoutes.ratings,
         pageBuilder: (context, state) =>
             buildPage(const RatingsScreen(), state),
+      ),
+      GoRoute(
+        path: AppRoutes.referrals,
+        pageBuilder: (context, state) =>
+            buildPage(const ReferralScreen(), state),
       ),
       GoRoute(
         path: AppRoutes.settings,

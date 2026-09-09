@@ -113,6 +113,11 @@ class ProfileScreen extends ConsumerWidget {
                     onTap: () => context.push(AppRoutes.ratings),
                   ),
                   _ActionTile(
+                    icon: Icons.card_giftcard_outlined,
+                    label: 'Refer a rider',
+                    onTap: () => context.push(AppRoutes.referrals),
+                  ),
+                  _ActionTile(
                     icon: Icons.settings_outlined,
                     label: 'Settings',
                     onTap: () => context.push(AppRoutes.settings),
