@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/app_constants.dart';
 import '../network/api_client.dart';
+import '../../features/auth/domain/pending_referral.dart';
 import '../router/app_routes.dart';
 
 class AppPreferences implements ApiTokenStore {
@@ -12,6 +13,45 @@ class AppPreferences implements ApiTokenStore {
 
   /// Expose for settings provider to read/write keys directly.
   SharedPreferences get prefs => _preferences;
+
+  // ── Pending referral ───────────────────────────────────────────────────
+  //
+  // A referral link is opened before the rider has an account, and the apply
+  // endpoint is authenticated, so the code waits here until a session exists.
+
+  PendingReferral? get pendingReferral {
+    final code = _preferences.getString(
+      AppConstants.preferencesPendingReferralCodeKey,
+    );
+    if (code == null || code.isEmpty) return null;
+    final capturedMs = _preferences.getInt(
+      AppConstants.preferencesPendingReferralAtKey,
+    );
+    return PendingReferral(
+      code: code,
+      // A stored code with no timestamp predates this field; treat it as just
+      // captured rather than discarding a legitimate referral.
+      capturedAt: capturedMs == null
+          ? DateTime.now()
+          : DateTime.fromMillisecondsSinceEpoch(capturedMs),
+    );
+  }
+
+  Future<void> setPendingReferral(String code, {DateTime? capturedAt}) async {
+    await _preferences.setString(
+      AppConstants.preferencesPendingReferralCodeKey,
+      code,
+    );
+    await _preferences.setInt(
+      AppConstants.preferencesPendingReferralAtKey,
+      (capturedAt ?? DateTime.now()).millisecondsSinceEpoch,
+    );
+  }
+
+  Future<void> clearPendingReferral() async {
+    await _preferences.remove(AppConstants.preferencesPendingReferralCodeKey);
+    await _preferences.remove(AppConstants.preferencesPendingReferralAtKey);
+  }
 
   // ── Theme ──────────────────────────────────────────────────────────────
 

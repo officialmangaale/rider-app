@@ -15,6 +15,9 @@ import 'notifications_provider.dart';
 import 'orders_provider.dart';
 import 'profile_provider.dart';
 import 'rider_compliance_provider.dart';
+import '../../features/auth/domain/pending_referral.dart';
+import '../../features/auth/domain/signup_contract.dart';
+import 'referral_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Session state
@@ -133,6 +136,10 @@ class SessionController extends Notifier<SessionState> {
         'password': password,
         'license_number': licenseNumber,
         'phone': phone,
+        // user-service stores the dialling code separately. The
+        // restaurant-owner signup already sends both; the rider signup was
+        // omitting the country code entirely.
+        'phone_country_code': defaultPhoneCountryCode,
         'city': city,
         'email': email,
         'vehicle_type': vehicleType,
@@ -144,6 +151,36 @@ class SessionController extends Notifier<SessionState> {
       source: 'signup',
       fallbackRole: 'delivery_driver',
     );
+    await _applyPendingReferral();
+  }
+
+  /// Attributes a referral code captured from a link before this rider had an
+  /// account.
+  ///
+  /// Runs after the session exists, because the apply endpoint is
+  /// authenticated. Every failure is swallowed on purpose: the rider has a
+  /// working account either way, and failing signup over a referral would be
+  /// the wrong trade. The stored code is cleared whatever the outcome, so a
+  /// refused code is not retried on every launch.
+  Future<void> _applyPendingReferral() async {
+    final prefs = ref.read(appPreferencesProvider);
+    final stored = prefs.pendingReferral;
+    if (!shouldApplyAfterSignup(
+      stored: stored,
+      isNewAccount: true,
+      now: DateTime.now(),
+    )) {
+      // Nothing usable saved. Clear anything stale so it cannot resurface.
+      if (stored != null) await prefs.clearPendingReferral();
+      return;
+    }
+    try {
+      await ref.read(referralApiProvider).applyCode(stored!.code);
+    } catch (_) {
+      // Deliberately ignored — see above.
+    } finally {
+      await prefs.clearPendingReferral();
+    }
   }
 
   Future<void> deleteAccount() async {

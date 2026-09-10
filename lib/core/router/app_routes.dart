@@ -40,6 +40,11 @@ class AppRoutes {
   static const ratings = '/ratings';
   static const settings = '/settings';
   static const referrals = '/referrals';
+  /// Referral deep links. Two shapes are accepted because two transports
+  /// deliver them: `https://mangaale.com/r/<code>` (App Link) and
+  /// `mangaale-rider://referral/<code>` (custom scheme).
+  static const referralCaptureShort = '/r/:code';
+  static const referralCaptureLong = '/referral/:code';
   static const restaurantOrderBase = '/restaurant-order';
 
   static const canonicalRiderRole = 'delivery_driver';

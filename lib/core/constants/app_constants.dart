@@ -20,6 +20,10 @@ class AppConstants {
   static const preferencesRefreshTokenKey = 'refresh_token';
   static const preferencesAuthRoleKey = 'auth_role';
   static const preferencesDeviceIdKey = 'device_id';
+  /// Referral code captured from a link before the rider had an account,
+  /// with the moment it was captured so it can be expired.
+  static const preferencesPendingReferralCodeKey = 'pending_referral_code';
+  static const preferencesPendingReferralAtKey = 'pending_referral_captured_at';
   static const mockRefreshDelayMs = 900;
 
 }

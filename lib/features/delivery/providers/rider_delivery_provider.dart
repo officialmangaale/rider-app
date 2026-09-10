@@ -15,6 +15,7 @@ import '../services/rider_delivery_api_service.dart';
 import '../services/rider_location_service.dart';
 import '../services/rider_socket_service.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import '../services/incoming_alert_policy.dart';
 
 final riderDeliveryApiServiceProvider = Provider<RiderDeliveryApiService>((
   ref,
@@ -803,10 +804,19 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       return;
     }
 
+    // seenRequestIds already tracks every request that has reached this
+    // rider, so it is the right guard for the alert. Without it a request
+    // replayed after a reconnect — or arriving over both the socket and a
+    // push — sounds a second time for an order already seen or handled.
+    final isFirstSighting = shouldAlertForRequest(
+      requestId: request.requestId,
+      seenRequestIds: state.seenRequestIds,
+    );
     final updatedSeen = Set<int>.from(state.seenRequestIds)
       ..add(request.requestId);
     _debug(
-      'request received requestId=${request.requestId} orderId=${request.orderId}',
+      'request received requestId=${request.requestId} orderId=${request.orderId} '
+      'firstSighting=$isFirstSighting',
     );
     state = state.copyWith(
       pendingRequests: updatedRequests,
@@ -814,8 +824,10 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       clearRequestError: true,
     );
 
-    // Play ringtone and vibrate on new delivery request
-    FlutterRingtonePlayer().playNotification();
+    if (isFirstSighting) {
+      // Ringtone and vibration announce a genuinely new delivery request.
+      FlutterRingtonePlayer().playNotification();
+    }
   }
 
   void _onRequestExpired(int requestId) {
@@ -850,8 +862,17 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     int orderId,
     int? restaurantId,
   ) async {
+    // Assignment events are delivered at least once, so the same assignment
+    // can arrive again after a reconnect. If this order is already the
+    // rider's active order the event is a replay: refresh state, but do not
+    // sound the alert a second time.
+    final isReplay = !shouldAlertForAssignment(
+      orderId: orderId,
+      activeOrderId: state.activeOrderId,
+    );
     _debug(
-      'restaurant-owned assignment orderId=$orderId restaurantId=${restaurantId ?? 'unknown'}',
+      'restaurant-owned assignment orderId=$orderId '
+      'restaurantId=${restaurantId ?? 'unknown'} replay=$isReplay',
     );
     state = state.copyWith(
       activeOrderId: orderId,
@@ -863,8 +884,10 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     await fetchActiveOrder(orderId);
     ref.invalidate(activeOrdersProvider);
 
-    // Play ringtone and vibrate on order assignment
-    FlutterRingtonePlayer().playNotification();
+    if (!isReplay) {
+      // Ringtone and vibration announce a newly assigned order.
+      FlutterRingtonePlayer().playNotification();
+    }
   }
 
   Future<void> refreshPendingRequests() async {

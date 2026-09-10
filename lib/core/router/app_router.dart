@@ -17,6 +17,7 @@ import '../../features/onboarding/presentation/onboarding_screen.dart';
 import '../../features/orders/presentation/orders_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/ratings/presentation/ratings_screen.dart';
+import '../../features/auth/presentation/referral_capture_screen.dart';
 import '../../features/referrals/presentation/referral_screen.dart';
 import '../../features/restaurant_rider/presentation/active_orders_screen.dart';
 import '../../features/restaurant_rider/presentation/delivered_orders_screen.dart';
@@ -269,6 +270,22 @@ GoRouter buildAppRouter({
         path: AppRoutes.referrals,
         pageBuilder: (context, state) =>
             buildPage(const ReferralScreen(), state),
+      ),
+      // Referral deep links land here before the rider has an account, so
+      // they sit outside the authenticated shell.
+      GoRoute(
+        path: AppRoutes.referralCaptureShort,
+        pageBuilder: (context, state) => buildPage(
+          ReferralCaptureScreen(code: state.pathParameters['code'] ?? ''),
+          state,
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.referralCaptureLong,
+        pageBuilder: (context, state) => buildPage(
+          ReferralCaptureScreen(code: state.pathParameters['code'] ?? ''),
+          state,
+        ),
       ),
       GoRoute(
         path: AppRoutes.settings,

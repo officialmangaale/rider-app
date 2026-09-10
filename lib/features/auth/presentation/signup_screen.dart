@@ -12,6 +12,7 @@ import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/feedback_widgets.dart';
 import '../../../shared/widgets/premium_controls.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
+import '../domain/signup_contract.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
   const SignupScreen({super.key});
@@ -30,6 +31,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   final _emailController = TextEditingController();
   String _vehicleType = 'Motorcycle';
   bool _submitting = false;
+
+  /// Drives inline per-field errors. Without it the only feedback a rider
+  /// got was the server's single generic "invalid payload" message.
+  final _formKey = GlobalKey<FormState>();
 
   @override
   void dispose() {
@@ -115,7 +120,12 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
               // ── Signup form ──────────────────────────────
               GlassCard(
-                child: Column(
+                child: Form(
+                  key: _formKey,
+                  // Errors appear as the rider corrects a field, rather than
+                  // only after another rejected submission.
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SectionHeader(
@@ -128,6 +138,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                       hint: 'Abdullahi',
                       controller: _firstNameController,
                       prefixIcon: Icons.person_rounded,
+                      validator: (v) => validateRequired(v, 'first name'),
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     PremiumTextField(
@@ -135,6 +146,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                       hint: 'Ahmed',
                       controller: _lastNameController,
                       prefixIcon: Icons.person_outline_rounded,
+                      validator: (v) => validateRequired(v, 'last name'),
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     PremiumTextField(
@@ -143,6 +155,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                       controller: _phoneController,
                       keyboardType: TextInputType.phone,
                       prefixIcon: Icons.phone_rounded,
+                      validator: validatePhone,
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     PremiumTextField(
@@ -151,6 +164,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       prefixIcon: Icons.email_rounded,
+                      validator: validateEmail,
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     PremiumTextField(
@@ -159,6 +173,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                       controller: _passwordController,
                       obscureText: true,
                       prefixIcon: Icons.lock_rounded,
+                      validator: validatePassword,
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     PremiumTextField(
@@ -166,6 +181,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                       hint: 'DL-123456789',
                       controller: _licenseNumberController,
                       prefixIcon: Icons.badge_rounded,
+                      validator: (v) => validateRequired(v, 'license number'),
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     PremiumTextField(
@@ -173,6 +189,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                       hint: 'Your operating city',
                       controller: _cityController,
                       prefixIcon: Icons.location_city_rounded,
+                      validator: (v) => validateRequired(v, 'city'),
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     Text(
@@ -236,6 +253,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     ),
                   ],
                 ),
+                ),
               ),
             ],
           ),
@@ -253,20 +271,27 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     final email = _emailController.text.trim();
     final city = _cityController.text.trim();
 
-    if (firstName.isEmpty ||
-        lastName.isEmpty ||
-        password.isEmpty ||
-        licenseNumber.isEmpty ||
-        phone.isEmpty ||
-        email.isEmpty ||
-        city.isEmpty) {
+    // Every field is checked against the same rules user-service enforces, so
+    // a rider sees which field is wrong instead of one generic rejection.
+    if (!(_formKey.currentState?.validate() ?? false)) {
       showLuxurySnackBar(
         context,
-        'Please fill in all required fields.',
+        'Please correct the highlighted fields.',
         isError: true,
       );
       return;
     }
+
+    final vehicleTypeError = validateVehicleType(_vehicleType);
+    if (vehicleTypeError != null) {
+      showLuxurySnackBar(context, vehicleTypeError, isError: true);
+      return;
+    }
+
+    // Sent as +91XXXXXXXXXX with an explicit country code, matching what the
+    // restaurant-owner signup already sends. The rider's typed value is only
+    // reshaped here, never padded or truncated to satisfy the server.
+    final wirePhone = normalizePhoneForWire(phone);
 
     setState(() => _submitting = true);
     try {
@@ -277,7 +302,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
             lastName: lastName,
             password: password,
             licenseNumber: licenseNumber,
-            phone: phone,
+            phone: wirePhone,
             email: email,
             city: city,
             vehicleType: _vehicleType.toLowerCase(),
@@ -300,7 +325,13 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       context.go(route);
     } on ApiException catch (e) {
       if (!mounted) return;
-      showLuxurySnackBar(context, e.message, isError: true);
+      // user-service answers every binding violation with the single message
+      // "invalid payload"; translate it into something the rider can act on.
+      showLuxurySnackBar(
+        context,
+        describeSignupFailure(e.message, detail: e.errors.toString()),
+        isError: true,
+      );
     } catch (e) {
       if (!mounted) return;
       showLuxurySnackBar(
