@@ -10,7 +10,7 @@ import '../models/delivery_models.dart';
 
 class RiderSocketService {
   RiderSocketService({
-    required this.token,
+    required this.tokenProvider,
     required this.onDeliveryOrderRequest,
     required this.onOrderRequestExpired,
     required this.onOrderAssignedToOther,
@@ -18,69 +18,123 @@ class RiderSocketService {
     required this.onConnectionChanged,
   });
 
-  final String token;
+  /// Read on every connection attempt, never cached. The access token is
+  /// refreshed behind this service's back by ApiClient; a token captured at
+  /// construction is rejected by the server once it expires, and every
+  /// reconnect after that fails while REST calls keep working.
+  final String? Function() tokenProvider;
   final Function(RiderOrderRequestModel request) onDeliveryOrderRequest;
   final Function(int requestId, int orderId) onOrderRequestExpired;
   final Function(int requestId, int orderId) onOrderAssignedToOther;
   final Function(int orderId, int? restaurantId) onRestaurantOwnedOrderAssigned;
   final ValueChanged<bool> onConnectionChanged;
 
+  static const _handshakeTimeout = Duration(seconds: 15);
+
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
   bool _isConnected = false;
+  bool _isConnecting = false;
   bool _shouldReconnect = true;
   int _reconnectAttempt = 0;
+
+  /// Incremented for every new channel and on disconnect. Callbacks from an
+  /// older channel compare against it and do nothing, so a channel being
+  /// replaced cannot mark the live one disconnected or schedule a reconnect
+  /// that opens a second parallel socket.
+  int _generation = 0;
   final Random _random = Random();
   final Set<String> _seenEventIds = <String>{};
 
+  String get _token => (tokenProvider() ?? '').trim();
+
   void connect() {
-    if (_isConnected || token.isEmpty) {
-      _debug('connect skipped tokenPresent=${token.isNotEmpty}');
+    if (_isConnected || _isConnecting) {
+      _debug(
+        'connect skipped connected=$_isConnected connecting=$_isConnecting',
+      );
+      return;
+    }
+    if (_token.isEmpty) {
+      _debug('connect skipped tokenPresent=false');
       return;
     }
     _shouldReconnect = true;
+    _reconnectTimer?.cancel();
     _connectInternal();
   }
 
   void _connectInternal() {
+    final token = _token;
+    if (token.isEmpty) {
+      // Signed out between attempts. Reconnecting would only be rejected.
+      _debug('reconnect stopped tokenPresent=false');
+      _isConnecting = false;
+      _setConnected(false);
+      return;
+    }
+
+    final generation = ++_generation;
+    final previous = _channel;
+    _channel = null;
+    previous?.sink.close();
+
+    _isConnecting = true;
     try {
       final uri = Uri.parse(
         AppConstants.riderWsUrl,
       ).replace(queryParameters: {'token': token});
-      _channel = WebSocketChannel.connect(uri);
+      final channel = WebSocketChannel.connect(uri);
+      _channel = channel;
 
-      _debug('connecting tokenPresent=${token.isNotEmpty}');
+      _debug('connecting generation=$generation');
       unawaited(
-        _channel!.ready
+        // Bounded, so a handshake that never completes cannot leave the
+        // service "connecting" forever and skipping every later connect().
+        channel.ready
+            .timeout(_handshakeTimeout)
             .then((_) {
+              if (generation != _generation) return;
+              _isConnecting = false;
               _reconnectAttempt = 0;
               _setConnected(true);
-              _debug('connected');
+              _debug('connected generation=$generation');
             })
-            .catchError((error) {
+            .catchError((Object error) {
+              if (generation != _generation) return;
+              _isConnecting = false;
+              channel.sink.close();
               _setConnected(false);
-              _debug('connection failed error=$error');
+              // The handshake status is not exposed here; a 401 (bad token)
+              // and a 400 (proxy dropped the upgrade) look the same.
+              _debug('connection failed generation=$generation error=$error');
               _scheduleReconnect();
             }),
       );
 
-      _channel!.stream.listen(
+      channel.stream.listen(
         (message) {
+          if (generation != _generation) return;
           _setConnected(true);
           _handleMessage(message);
         },
         onDone: () {
-          _debug('disconnected');
+          if (generation != _generation) return;
+          _isConnecting = false;
+          _debug('disconnected generation=$generation');
           _setConnected(false);
           _scheduleReconnect();
         },
-        onError: (error) {
-          _debug('stream error=$error');
+        onError: (Object error) {
+          if (generation != _generation) return;
+          _isConnecting = false;
+          _debug('stream error generation=$generation error=$error');
           _setConnected(false);
           _scheduleReconnect();
         },
       );
     } catch (e) {
+      _isConnecting = false;
       _debug('connect error=$e');
       _setConnected(false);
       _scheduleReconnect();
@@ -96,6 +150,7 @@ class RiderSocketService {
     _reconnectTimer = Timer(
       Duration(milliseconds: baseMilliseconds + jitter),
       () {
+        if (!_shouldReconnect || _isConnected) return;
         _connectInternal();
       },
     );
@@ -161,8 +216,11 @@ class RiderSocketService {
 
   void disconnect() {
     _shouldReconnect = false;
+    _generation++;
     _reconnectTimer?.cancel();
     _channel?.sink.close();
+    _channel = null;
+    _isConnecting = false;
     _seenEventIds.clear();
     _reconnectAttempt = 0;
     _setConnected(false);

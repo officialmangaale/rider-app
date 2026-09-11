@@ -239,7 +239,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(
-                          'Reconnecting live orders…',
+                          // While the socket is down, requests still arrive
+                          // by polling; say so rather than implying they stop.
+                          riderDeliveryState.pollingFallbackActive
+                              ? 'Reconnecting live orders… Still checking for new requests every few seconds.'
+                              : 'Reconnecting live orders…',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),

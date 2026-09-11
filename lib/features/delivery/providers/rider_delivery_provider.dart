@@ -43,7 +43,9 @@ final riderLocationServiceProvider = Provider<RiderLocationService>((ref) {
 final riderSocketServiceProvider = Provider<RiderSocketService>((ref) {
   final prefs = ref.watch(appPreferencesProvider);
   return RiderSocketService(
-    token: prefs.accessToken ?? '',
+    // A getter, not a value: ApiClient refreshes the token without
+    // rebuilding this provider.
+    tokenProvider: () => prefs.accessToken,
     onDeliveryOrderRequest: (request) {
       ref
           .read(riderDeliveryControllerProvider.notifier)
@@ -92,7 +94,7 @@ class RiderDeliveryState {
     this.requestErrorMessage,
     this.activeOrderId,
     this.activeOrder,
-    this.seenRequestIds = const {},
+    this.seenOfferKeys = const {},
     this.locationStatus = RiderLocationTrackingStatus.idle,
     this.locationMessage = 'Go online to start location tracking.',
     this.locationServiceEnabled = false,
@@ -112,7 +114,7 @@ class RiderDeliveryState {
   final String? requestErrorMessage;
   final int? activeOrderId;
   final ActiveDeliveryOrderModel? activeOrder;
-  final Set<int> seenRequestIds;
+  final Set<String> seenOfferKeys;
   final RiderLocationTrackingStatus locationStatus;
   final String locationMessage;
   final bool locationServiceEnabled;
@@ -154,7 +156,7 @@ class RiderDeliveryState {
     bool clearActiveOrderId = false,
     ActiveDeliveryOrderModel? activeOrder,
     bool clearActiveOrder = false,
-    Set<int>? seenRequestIds,
+    Set<String>? seenOfferKeys,
     RiderLocationTrackingStatus? locationStatus,
     String? locationMessage,
     bool? locationServiceEnabled,
@@ -182,7 +184,7 @@ class RiderDeliveryState {
           ? null
           : (activeOrderId ?? this.activeOrderId),
       activeOrder: clearActiveOrder ? null : (activeOrder ?? this.activeOrder),
-      seenRequestIds: seenRequestIds ?? this.seenRequestIds,
+      seenOfferKeys: seenOfferKeys ?? this.seenOfferKeys,
       locationStatus: locationStatus ?? this.locationStatus,
       locationMessage: locationMessage ?? this.locationMessage,
       locationServiceEnabled:
@@ -215,6 +217,8 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   static const _idleSendInterval = Duration(seconds: 30);
   static const _activeSendInterval = Duration(seconds: 15);
   static const _duplicateHeartbeatInterval = Duration(minutes: 2);
+  static const _fallbackPollInterval = Duration(seconds: 10);
+  static const _connectedPollInterval = Duration(seconds: 30);
   static const _idleDistanceMeters = 25.0;
   static const _activeDistanceMeters = 10.0;
 
@@ -224,6 +228,9 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   bool _desiredTracking = false;
   bool _isForeground = true;
   bool _bootstrapInFlight = false;
+  Timer? _fallbackPollTimer;
+  DateTime? _lastPollAt;
+  bool _pollInFlight = false;
 
   @override
   RiderDeliveryState build() {
@@ -505,6 +512,12 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
         _debug('app resumed');
         if (_desiredTracking && state.isOnline) {
           unawaited(_startLocationTracking(requestPermission: false));
+          // Tracking pauses in the background, so an offer made while the app
+          // was hidden is only on the server. Fetch it now rather than on the
+          // next poll, and reconnect a socket the OS may have closed.
+          ref.read(riderSocketServiceProvider).connect();
+          _startFallbackPolling();
+          unawaited(_pollPendingRequests());
         } else if (_hasValidSession()) {
           unawaited(bootstrapSessionLocation());
         }
@@ -792,35 +805,39 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   }
 
   void _onNewDeliveryRequest(RiderOrderRequestModel request) {
-    final requestKey = _requestKey(request);
-    final updatedRequests = _mergePendingRequests(state.pendingRequests, [
-      request,
-    ]);
-    if (updatedRequests.length == state.pendingRequests.length &&
-        state.pendingRequests.any((item) => _requestKey(item) == requestKey)) {
+    if (!request.expiresAt.toUtc().isAfter(DateTime.now().toUtc())) {
+      _debug(
+        'expired request ignored requestId=${request.requestId} orderId=${request.orderId}',
+      );
+      return;
+    }
+
+    // Compared by offer, not request id: rider-service re-offers a lapsed
+    // request under the same id with a new expiry, and that must replace the
+    // stale card rather than be dropped as a duplicate.
+    final offerKey = _offerKey(request);
+    if (state.pendingRequests.any((item) => _offerKey(item) == offerKey)) {
       _debug(
         'duplicate request ignored requestId=${request.requestId} orderId=${request.orderId}',
       );
       return;
     }
 
-    // seenRequestIds already tracks every request that has reached this
-    // rider, so it is the right guard for the alert. Without it a request
-    // replayed after a reconnect — or arriving over both the socket and a
-    // push — sounds a second time for an order already seen or handled.
+    // seenOfferKeys tracks every offer that has reached this rider, so it is
+    // the right guard for the alert. Without it an offer replayed after a
+    // reconnect — or arriving over both the socket and polling — sounds a
+    // second time for an order already seen or handled.
     final isFirstSighting = shouldAlertForRequest(
-      requestId: request.requestId,
-      seenRequestIds: state.seenRequestIds,
+      offerKey: offerKey,
+      seenOfferKeys: state.seenOfferKeys,
     );
-    final updatedSeen = Set<int>.from(state.seenRequestIds)
-      ..add(request.requestId);
     _debug(
       'request received requestId=${request.requestId} orderId=${request.orderId} '
       'firstSighting=$isFirstSighting',
     );
     state = state.copyWith(
-      pendingRequests: updatedRequests,
-      seenRequestIds: updatedSeen,
+      pendingRequests: _mergePendingRequests(state.pendingRequests, [request]),
+      seenOfferKeys: {...state.seenOfferKeys, offerKey},
       clearRequestError: true,
     );
 
@@ -897,17 +914,25 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
           .getPendingOrderRequests();
 
       final pending = _mergePendingRequests(const [], response.data);
+      final offerKeys = pending.map(_offerKey).toList();
+      // This is the only path that delivers an offer while the socket is
+      // down, so it has to ring for a new one exactly as the socket would.
+      final hasNewOffer = shouldAlertForSnapshot(
+        offerKeys: offerKeys,
+        seenOfferKeys: state.seenOfferKeys,
+      );
       state = state.copyWith(
         pendingRequests: pending,
-        seenRequestIds: {
-          ...state.seenRequestIds,
-          ...pending.map((request) => request.requestId),
-        },
+        seenOfferKeys: {...state.seenOfferKeys, ...offerKeys},
         clearRequestError: true,
       );
       _debug(
-        'pending requests refresh success status=${response.statusCode ?? 'unknown'} count=${response.data.length}',
+        'pending requests refresh success status=${response.statusCode ?? 'unknown'} '
+        'count=${response.data.length} newOffer=$hasNewOffer',
       );
+      if (hasNewOffer) {
+        FlutterRingtonePlayer().playNotification();
+      }
     } on ApiException catch (error) {
       if (error.statusCode == 401) {
         _markUnauthorized();
@@ -1169,11 +1194,50 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     }
   }
 
+  /// Polls pending offers while the rider is online.
+  ///
+  /// This was once reduced to a no-op on the assumption that the socket
+  /// always reconnects. In production it could not connect at all — the
+  /// proxy in front of rider-service dropped the WebSocket upgrade — so no
+  /// offer reached the app and nothing rang. Polling is the floor the socket
+  /// improves on, not a second listener to avoid: every [_fallbackPollInterval]
+  /// while the socket is down, and every [_connectedPollInterval] while it is
+  /// up, since a socket can look open after the far end has gone.
+  ///
+  /// Offers are 30 seconds long; a 10-second poll leaves the rider at least
+  /// 20 of them.
   void _startFallbackPolling() {
-    // Socket reconnect is unbounded. Reconcile once when it reconnects
-    // instead of running a second polling listener in parallel.
-    if (state.pollingFallbackActive) {
-      state = state.copyWith(pollingFallbackActive: false);
+    if (_fallbackPollTimer == null) {
+      _debug('fallback polling started');
+      _fallbackPollTimer = Timer.periodic(_fallbackPollInterval, (_) {
+        if (!state.isOnline) {
+          _stopFallbackPolling();
+          return;
+        }
+        final lastPoll = _lastPollAt;
+        if (state.socketConnected &&
+            lastPoll != null &&
+            DateTime.now().difference(lastPoll) < _connectedPollInterval) {
+          return;
+        }
+        unawaited(_pollPendingRequests());
+      });
+    }
+    if (!state.pollingFallbackActive) {
+      state = state.copyWith(pollingFallbackActive: true);
+    }
+  }
+
+  Future<void> _pollPendingRequests() async {
+    if (_pollInFlight) {
+      return;
+    }
+    _pollInFlight = true;
+    _lastPollAt = DateTime.now();
+    try {
+      await refreshPendingRequests();
+    } finally {
+      _pollInFlight = false;
     }
   }
 
@@ -1188,6 +1252,12 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   }
 
   void _stopFallbackPolling({bool updateState = true}) {
+    if (_fallbackPollTimer != null) {
+      _debug('fallback polling stopped');
+    }
+    _fallbackPollTimer?.cancel();
+    _fallbackPollTimer = null;
+    _lastPollAt = null;
     if (updateState && state.pollingFallbackActive) {
       state = state.copyWith(pollingFallbackActive: false);
     }
@@ -1212,6 +1282,11 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     requests.sort((a, b) => a.expiresAt.compareTo(b.expiresAt));
     return requests;
   }
+
+  String _offerKey(RiderOrderRequestModel request) => requestOfferKey(
+    requestId: request.requestId,
+    expiresAt: request.expiresAt,
+  );
 
   String _requestKey(RiderOrderRequestModel request) {
     if (request.requestId > 0) {
