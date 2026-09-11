@@ -1331,9 +1331,11 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
         // State mismatch with backend, refresh active order.
         await fetchActiveOrder(currentOrderId);
       }
+      // The backend's reason (fixed phrases and status names, no personal
+      // data) goes to debug logs; the screen shows a friendly message.
       _debug(
         'status action failed status=${e.statusCode ?? 'unknown'} '
-        'code=${e.errorCode ?? 'none'} next=$newStatus',
+        'code=${e.errorCode ?? 'none'} next=$newStatus reason=${e.message}',
       );
       rethrow;
     } catch (e) {

@@ -40,6 +40,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/icons/app_logo.png
     - assets/icons/brand_mark.svg
     - assets/mock/profile.json
     - assets/mock/orders.json

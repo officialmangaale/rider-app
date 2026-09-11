@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_routes.dart';
@@ -46,22 +45,12 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
     return Scaffold(
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SvgPicture.asset(
-                  'assets/icons/brand_mark.svg',
-                  width: 96,
-                  height: 96,
-                  colorFilter: ColorFilter.mode(
-                    scheme.primary,
-                    BlendMode.srcIn,
-                  ),
-                )
+            Image.asset('assets/icons/app_logo.png', width: 96, height: 96)
                 .animate()
                 .scale(
                   begin: const Offset(0.7, 0.7),

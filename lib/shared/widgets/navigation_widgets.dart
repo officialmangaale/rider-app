@@ -2,7 +2,6 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
@@ -23,22 +22,12 @@ class BrandMark extends StatelessWidget {
       children: [
         Hero(
           tag: 'brand-mark',
-          child: Container(
+          child: SizedBox(
             width: size,
             height: size,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(size * 0.32),
-              color: AppColors.riderPrimary,
-            ),
-            child: Padding(
-              padding: EdgeInsets.all(size * 0.2),
-              child: SvgPicture.asset(
-                'assets/icons/brand_mark.svg',
-                colorFilter: const ColorFilter.mode(
-                  Colors.white,
-                  BlendMode.srcIn,
-                ),
-              ),
+            child: Image.asset(
+              'assets/icons/app_logo.png',
+              fit: BoxFit.contain,
             ),
           ),
         ),
@@ -507,4 +496,3 @@ class _RoutePainter extends CustomPainter {
     return oldDelegate.isDark != isDark;
   }
 }
-

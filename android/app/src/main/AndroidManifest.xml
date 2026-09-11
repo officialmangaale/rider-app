@@ -16,7 +16,7 @@
          the bubble on in Settings; never needed to receive requests. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <application
-        android:label="Rydex Rider"
+        android:label="Mangaale Express"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -115,4 +115,3 @@
         </intent>
     </queries>
 </manifest>
-

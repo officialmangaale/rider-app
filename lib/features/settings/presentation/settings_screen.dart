@@ -88,7 +88,7 @@ class SettingsScreen extends ConsumerWidget {
                 const ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text('Version info'),
-                  subtitle: Text('Rydex Rider v1.0.0+1'),
+                  subtitle: Text('Mangaale Express v1.0.0+1'),
                 ),
               ],
             ),

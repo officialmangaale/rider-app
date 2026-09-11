@@ -147,6 +147,9 @@ class ActiveDeliveryOrderModel {
     this.etaMinutes = 0,
     this.assignmentType = 'platform',
     this.restaurantOwned = false,
+    this.restaurantOrderStatus,
+    this.pickupReady,
+    this.nextDeliveryStatus,
   });
 
   final int orderId;
@@ -171,9 +174,18 @@ class ActiveDeliveryOrderModel {
   final String assignmentType;
   final bool restaurantOwned;
 
+  /// The restaurant's order status (confirmed, preparing, ready, ...).
+  final String? restaurantOrderStatus;
+
+  /// Whether the kitchen has released the order, i.e. whether "picked up" can
+  /// succeed now. Null when the backend did not say (older deployments).
+  final bool? pickupReady;
+
+  /// The single valid next step according to the backend, when it sends one.
+  final String? nextDeliveryStatus;
+
   bool get isRestaurantOwned {
-    return restaurantOwned ||
-        _isRestaurantOwnedAssignmentType(assignmentType);
+    return restaurantOwned || _isRestaurantOwnedAssignmentType(assignmentType);
   }
 
   bool get requiresCashCollection {
@@ -215,6 +227,9 @@ class ActiveDeliveryOrderModel {
       restaurantOwned:
           _asBool(json['restaurant_owned']) ??
           _isRestaurantOwnedAssignmentType(_asString(json['assignment_type'])),
+      restaurantOrderStatus: _asStringOrNull(json['restaurant_order_status']),
+      pickupReady: _asBool(json['pickup_ready']),
+      nextDeliveryStatus: _asStringOrNull(json['next_delivery_status']),
     );
   }
 
@@ -245,6 +260,11 @@ bool _isRestaurantOwnedAssignmentType(String value) {
     default:
       return false;
   }
+}
+
+String? _asStringOrNull(Object? value) {
+  final text = _asString(value);
+  return text.isEmpty ? null : text;
 }
 
 int? _asIntOrNull(Object? value) {
