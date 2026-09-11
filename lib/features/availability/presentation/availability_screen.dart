@@ -10,6 +10,7 @@ import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/feedback_widgets.dart';
 import '../../../shared/widgets/premium_controls.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
+import '../../delivery/background/online_mode_prompts.dart';
 import '../../delivery/providers/rider_delivery_provider.dart';
 import '../../delivery/widgets/rider_location_status_card.dart';
 
@@ -108,6 +109,11 @@ class AvailabilityScreen extends ConsumerWidget {
                                 (setupLoading || missingSetup.isNotEmpty)
                             ? null
                             : (active) async {
+                                if (active &&
+                                    !await prepareToGoOnline(context, ref)) {
+                                  return;
+                                }
+                                if (!context.mounted) return;
                                 try {
                                   await ref
                                       .read(
@@ -154,6 +160,8 @@ class AvailabilityScreen extends ConsumerWidget {
                       icon: Icons.play_arrow_rounded,
                       expanded: true,
                       onPressed: () async {
+                        if (!await prepareToGoOnline(context, ref)) return;
+                        if (!context.mounted) return;
                         try {
                           await ref
                               .read(availabilityControllerProvider.notifier)

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
+import '../../delivery/widgets/online_background_settings_card.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -18,7 +19,10 @@ class SettingsScreen extends ConsumerWidget {
           'Notification preferences, theme mode, privacy, terms, and app version.',
       child: ListView(
         padding: const EdgeInsets.fromLTRB(
-          AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
+          AppSpacing.xl,
+          0,
+          AppSpacing.xl,
+          AppSpacing.xl,
         ),
         children: [
           GlassCard(
@@ -48,6 +52,8 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
           ),
+          const SizedBox(height: AppSpacing.xl),
+          const OnlineBackgroundSettingsCard(),
           const SizedBox(height: AppSpacing.xl),
           GlassCard(
             child: Column(

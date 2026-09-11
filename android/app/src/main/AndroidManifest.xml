@@ -1,10 +1,20 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Location while the rider is Online. "While in use" is enough: the
+         Online foreground service is started from the app while it is on
+         screen, and a location-type foreground service keeps that access when
+         the app is backgrounded. ACCESS_BACKGROUND_LOCATION ("Allow all the
+         time") is therefore not declared - declaring it would also make
+         geolocator ask for it. See docs/rider-background-mode. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Online status notification and ringing delivery-request alerts. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Optional floating rider bubble. Requested only when the rider turns
+         the bubble on in Settings; never needed to receive requests. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <application
         android:label="Rydex Rider"
         android:name="${applicationName}"
@@ -64,6 +74,29 @@
                     android:pathPrefix="/r/" />
             </intent-filter>
         </activity>
+        <!-- The Online foreground service (flutter_background_service).
+             The plugin declares it without a type and exported; Android 14
+             requires the location type for a location foreground service,
+             and nothing outside this app should be able to start it. -->
+        <service
+            android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:exported="false"
+            android:foregroundServiceType="location"
+            tools:replace="android:exported" />
+        <!-- Restarts the service if Android kills it while the rider is
+             Online. Internal only. -->
+        <receiver
+            android:name="id.flutter.flutter_background_service.WatchdogReceiver"
+            android:exported="false"
+            tools:replace="android:exported" />
+        <!-- Disabled: a rider chooses to go Online each shift, so the service
+             must never start on boot or app update. -->
+        <receiver
+            android:name="id.flutter.flutter_background_service.BootReceiver"
+            android:enabled="false"
+            android:exported="false"
+            tools:replace="android:enabled,android:exported" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -7,7 +7,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'app/app.dart';
 import 'presentation/providers/app_providers.dart';
-import 'features/delivery/services/background_location_service.dart';
+import 'features/delivery/background/rider_online_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -17,13 +17,15 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   final preferences = await SharedPreferences.getInstance();
-  
-  await initializeBackgroundService();
+
+  // Registers the Online foreground service; it starts only when a rider
+  // goes Online.
+  await configureRiderOnlineService();
 
   runApp(
     ProviderScope(

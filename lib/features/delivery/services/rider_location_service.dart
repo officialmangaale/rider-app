@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
 
 enum RiderLocationReadiness {
@@ -217,15 +216,12 @@ class RiderLocationService {
       (_) => unawaited(_pollCurrentPosition(settings)),
     );
 
-    final service = FlutterBackgroundService();
-    if (isActiveDelivery) {
-      if (!await service.isRunning()) {
-        await service.startService();
-      }
-      service.invoke('startTracking');
-    } else {
-      service.invoke('stopService');
-    }
+    // This stream is the in-app tracker and runs only while the app is on
+    // screen. Background uploads belong to the Online foreground service,
+    // which BackgroundModeController alone starts and stops. This class used
+    // to start and stop that service too, and since stopTracking() runs
+    // whenever the app leaves the screen, it stopped the service exactly when
+    // it was needed.
 
     _debug(
       'tracking started activeDelivery=$isActiveDelivery interval=${pollInterval.inSeconds}s',
@@ -259,7 +255,6 @@ class RiderLocationService {
     _positionStream = null;
     _pollTimer = null;
     _isPolling = false;
-    FlutterBackgroundService().invoke('stopService');
   }
 
   void dispose() => stopTracking();

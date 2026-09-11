@@ -63,7 +63,10 @@ class _RydexRiderAppState extends ConsumerState<RydexRiderApp>
   void _syncLocationForSession(SessionState session) {
     final controller = ref.read(riderDeliveryControllerProvider.notifier);
     if (session.status == AuthStatus.authenticated) {
-      unawaited(controller.bootstrapSessionLocation(requestPermission: true));
+      // No permission prompt at launch. Location is requested when the rider
+      // goes Online, after the in-app explanation, as Play's prominent
+      // disclosure rule requires for location used in the background.
+      unawaited(controller.bootstrapSessionLocation());
     } else {
       controller.clearSession();
     }

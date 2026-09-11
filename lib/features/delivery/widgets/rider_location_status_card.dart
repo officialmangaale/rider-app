@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../shared/widgets/premium_controls.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
+import '../background/online_mode_prompts.dart';
 import '../providers/rider_delivery_provider.dart';
 
 class RiderLocationStatusCard extends ConsumerWidget {
@@ -76,9 +77,18 @@ class RiderLocationStatusCard extends ConsumerWidget {
                     icon: Icons.my_location_rounded,
                     onPressed: state.locationActionInProgress
                         ? null
-                        : () => ref
-                              .read(riderDeliveryControllerProvider.notifier)
-                              .requestLocationPermission(),
+                        : () async {
+                            // Explain first; Android's prompt comes after.
+                            if (!await confirmLocationDisclosure(
+                              context,
+                              ref,
+                            )) {
+                              return;
+                            }
+                            await ref
+                                .read(riderDeliveryControllerProvider.notifier)
+                                .requestLocationPermission();
+                          },
                   ),
                 if (state.canOpenLocationSettings)
                   PrimaryButton(

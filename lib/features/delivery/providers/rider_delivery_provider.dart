@@ -10,12 +10,40 @@ import '../../../data/services/rider_backend_api.dart';
 import '../../../domain/entities/rider_compliance_models.dart';
 import '../../../presentation/providers/core_providers.dart';
 import '../../restaurant_rider/providers/restaurant_rider_provider.dart';
+import '../background/background_mode_controller.dart';
+import '../background/background_mode_store.dart';
+import '../background/incoming_ringer.dart';
+import '../background/request_alert_notifier.dart';
+import '../background/rider_platform.dart';
 import '../models/delivery_models.dart';
 import '../services/rider_delivery_api_service.dart';
 import '../services/rider_location_service.dart';
 import '../services/rider_socket_service.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import '../services/incoming_alert_policy.dart';
+
+/// Owner of the Online foreground service, request notifications and bubble.
+final backgroundModeControllerProvider = Provider<BackgroundModeController>((
+  ref,
+) {
+  return BackgroundModeController(
+    store: BackgroundModeStore(ref.watch(sharedPreferencesProvider)),
+    service: PluginOnlineServiceGateway(),
+    platform: ref.watch(riderPlatformProvider),
+    notifier: RequestAlertNotifier(),
+  );
+});
+
+final riderPlatformProvider = Provider<RiderPlatform>(
+  (ref) => MethodChannelRiderPlatform(),
+);
+
+/// The in-app ring while a request card is on screen.
+final incomingRingerProvider = Provider<IncomingRinger>((ref) {
+  final ringer = IncomingRinger(SystemRingtoneOutput());
+  ref.onDispose(() => unawaited(ringer.stop()));
+  return ringer;
+});
 
 final riderDeliveryApiServiceProvider = Provider<RiderDeliveryApiService>((
   ref,
@@ -236,13 +264,42 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   RiderDeliveryState build() {
     final location = ref.read(riderLocationServiceProvider);
     final socket = ref.read(riderSocketServiceProvider);
+    final ringer = ref.read(incomingRingerProvider);
     ref.onDispose(() {
       _desiredTracking = false;
       _stopFallbackPolling(updateState: false);
       location.stopTracking();
       socket.disconnect();
+      unawaited(ringer.stop());
     });
+    listenSelf(_syncBackgroundMode);
     return const RiderDeliveryState();
+  }
+
+  BackgroundModeController get _background =>
+      ref.read(backgroundModeControllerProvider);
+
+  /// Keeps background mode in step with state from one place, whichever
+  /// path changed it (socket event, poll, accept, decline, expiry, restore).
+  void _syncBackgroundMode(
+    RiderDeliveryState? previous,
+    RiderDeliveryState next,
+  ) {
+    if (previous?.hasActiveDelivery != next.hasActiveDelivery) {
+      unawaited(_background.setActiveDelivery(next.hasActiveDelivery));
+    }
+
+    // An offer that left the list was accepted, declined, taken by another
+    // rider, or expired: its notification must stop ringing.
+    final previousIds =
+        previous?.pendingRequests.map((r) => r.requestId).toSet() ?? const {};
+    final nextIds = next.pendingRequests.map((r) => r.requestId).toSet();
+    for (final requestId in previousIds.difference(nextIds)) {
+      unawaited(_background.cancelRequestAlert(requestId));
+    }
+    if (next.pendingRequests.isEmpty) {
+      unawaited(ref.read(incomingRingerProvider).stop());
+    }
   }
 
   Future<void> bootstrapSessionLocation({
@@ -278,6 +335,12 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       );
 
       if (availability.isOnline) {
+        // Restores background mode after an app restart while Online. The
+        // server is the source of truth for Online, not the device.
+        await _background.startOnline(
+          hasActiveDelivery: availability.currentOrderId != null,
+          locationGranted: readiness.canTrack,
+        );
         ref.read(riderSocketServiceProvider).connect();
         _startFallbackPolling();
         await refreshPendingRequests();
@@ -291,6 +354,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
         _desiredTracking = false;
         _stopFallbackPolling();
         location.stopTracking();
+        await _background.stopOnline();
         state = state.copyWith(
           locationStatus: readiness.canTrack
               ? RiderLocationTrackingStatus.idle
@@ -333,6 +397,9 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     _stopFallbackPolling();
     ref.read(riderLocationServiceProvider).stopTracking();
     ref.read(riderSocketServiceProvider).disconnect();
+    // Sign-out ends everything: service, location, ringing, bubble.
+    unawaited(ref.read(incomingRingerProvider).stop());
+    unawaited(_background.stopOnline());
     state = const RiderDeliveryState();
   }
 
@@ -356,6 +423,8 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       _stopFallbackPolling();
       location.stopTracking();
       socket.disconnect();
+      await ref.read(incomingRingerProvider).stop();
+      await _background.stopOnline();
       state = state.copyWith(
         isOnline: false,
         isAvailable: false,
@@ -396,6 +465,13 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     );
 
     if (availability.isOnline) {
+      // The rider just tapped Online with the app on screen and location
+      // granted, which is when Android allows a location foreground service
+      // to start.
+      await _background.startOnline(
+        hasActiveDelivery: availability.currentOrderId != null,
+        locationGranted: readiness.canTrack,
+      );
       await _startLocationTracking(requestPermission: false);
       socket.connect();
       _startFallbackPolling();
@@ -510,6 +586,9 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       case AppLifecycleState.resumed:
         _isForeground = true;
         _debug('app resumed');
+        // The app alerts in-app again: stop service notifications, hide the
+        // bubble.
+        unawaited(_background.setAppInForeground(true, online: state.isOnline));
         if (_desiredTracking && state.isOnline) {
           unawaited(_startLocationTracking(requestPermission: false));
           // Tracking pauses in the background, so an offer made while the app
@@ -527,15 +606,32 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       case AppLifecycleState.hidden:
       case AppLifecycleState.detached:
         _isForeground = false;
+        // The in-app location stream stops either way. While Online on
+        // Android the foreground service picks uploads up within one
+        // interval; elsewhere tracking pauses as before.
+        final continuesInBackground = _background.supported && state.isOnline;
         if (_desiredTracking) {
           ref.read(riderLocationServiceProvider).stopTracking();
           state = state.copyWith(
             locationStatus: RiderLocationTrackingStatus.paused,
-            locationMessage:
-                'Tracking pauses while the app is in the background and resumes when you return.',
+            locationMessage: continuesInBackground
+                ? 'Online in the background. Location sharing continues while the Mangaale Rider notification is showing.'
+                : 'Tracking pauses while the app is in the background and resumes when you return.',
           );
         }
-        _debug('app backgrounded; foreground-only tracking paused');
+        // `inactive` is not "left the app": it covers permission dialogs and
+        // the notification shade. Showing the bubble then could cover a
+        // system prompt, so only a real move to the background counts.
+        if (lifecycleState != AppLifecycleState.inactive) {
+          unawaited(ref.read(incomingRingerProvider).stop());
+          unawaited(
+            _background.setAppInForeground(false, online: state.isOnline),
+          );
+        }
+        _debug(
+          'app backgrounded state=${lifecycleState.name} '
+          'backgroundMode=$continuesInBackground',
+        );
         break;
     }
   }
@@ -593,6 +689,8 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       final updatedAt = serverTimestamp ?? DateTime.now();
       _lastSentAt = DateTime.now();
       _lastSentPosition = position;
+      // Lets the service skip an upload the app has just made.
+      unawaited(_background.recordUpload(_lastSentAt!));
       state = state.copyWith(
         locationStatus: RiderLocationTrackingStatus.active,
         locationMessage: 'Tracking active.',
@@ -704,6 +802,8 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     _stopFallbackPolling();
     ref.read(riderLocationServiceProvider).stopTracking();
     ref.read(riderSocketServiceProvider).disconnect();
+    unawaited(ref.read(incomingRingerProvider).stop());
+    unawaited(_background.stopOnline());
     state = state.copyWith(
       isOnline: false,
       isAvailable: false,
@@ -842,8 +942,48 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     );
 
     if (isFirstSighting) {
-      // Ringtone and vibration announce a genuinely new delivery request.
+      unawaited(_alertNewOffers([request]));
+    }
+  }
+
+  /// Alerts once for offers that are new to the rider.
+  ///
+  /// "New" is decided across the app and the Online service through the
+  /// shared alerted list, so an offer the service already rang for while
+  /// the app was hidden does not ring again when the rider opens it.
+  ///
+  ///  * app on screen      -> bounded in-app ring ([IncomingRinger])
+  ///  * app not on screen  -> ringing heads-up notification, one per offer
+  ///  * no background mode -> the original one-shot sound (iOS, web)
+  Future<void> _alertNewOffers(List<RiderOrderRequestModel> offers) async {
+    final now = DateTime.now().toUtc();
+    final live = offers
+        .where((offer) => offer.expiresAt.toUtc().isAfter(now))
+        .toList();
+    if (live.isEmpty) {
+      return;
+    }
+    final background = _background;
+    if (!background.supported) {
       FlutterRingtonePlayer().playNotification();
+      return;
+    }
+    final alreadyAlerted = await background.alertedOfferKeys();
+    final fresh = live
+        .where((offer) => !alreadyAlerted.contains(_offerKey(offer)))
+        .toList();
+    if (fresh.isEmpty) {
+      _debug('offer already alerted by the Online service');
+      return;
+    }
+    await background.rememberAlerted(fresh.map(_offerKey));
+    if (_isForeground) {
+      final until = fresh
+          .map((offer) => offer.expiresAt)
+          .reduce((a, b) => a.isAfter(b) ? a : b);
+      await ref.read(incomingRingerProvider).ring(until: until);
+    } else {
+      await background.notifyInBackground(fresh);
     }
   }
 
@@ -921,6 +1061,9 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
         offerKeys: offerKeys,
         seenOfferKeys: state.seenOfferKeys,
       );
+      final newOffers = pending
+          .where((request) => !state.seenOfferKeys.contains(_offerKey(request)))
+          .toList();
       state = state.copyWith(
         pendingRequests: pending,
         seenOfferKeys: {...state.seenOfferKeys, ...offerKeys},
@@ -931,7 +1074,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
         'count=${response.data.length} newOffer=$hasNewOffer',
       );
       if (hasNewOffer) {
-        FlutterRingtonePlayer().playNotification();
+        unawaited(_alertNewOffers(newOffers));
       }
     } on ApiException catch (error) {
       if (error.statusCode == 401) {
@@ -1007,6 +1150,9 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       fetchActiveOrder(state.activeOrderId ?? state.activeOrder?.orderId ?? 0);
 
   Future<void> acceptRequest(int requestId) async {
+    // The rider has answered: stop ringing whatever the outcome.
+    unawaited(ref.read(incomingRingerProvider).stop());
+    unawaited(_background.cancelRequestAlert(requestId));
     try {
       final pendingOrderId = _pendingOrderIdForRequest(requestId);
       final response = await ref
@@ -1049,6 +1195,8 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   }
 
   Future<void> rejectRequest(int requestId) async {
+    unawaited(ref.read(incomingRingerProvider).stop());
+    unawaited(_background.cancelRequestAlert(requestId));
     try {
       await ref
           .read(riderDeliveryApiServiceProvider)
@@ -1212,6 +1360,12 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       _fallbackPollTimer = Timer.periodic(_fallbackPollInterval, (_) {
         if (!state.isOnline) {
           _stopFallbackPolling();
+          return;
+        }
+        // Off screen, the Online service polls on the same cadence; polling
+        // here too would double the requests. The socket stays connected and
+        // still delivers instantly.
+        if (!_isForeground && _background.supported) {
           return;
         }
         final lastPoll = _lastPollAt;

@@ -16,6 +16,7 @@ import '../../../shared/widgets/feedback_widgets.dart';
 import '../../../shared/widgets/premium_cards.dart';
 import '../../../shared/widgets/premium_controls.dart';
 import '../../../shared/widgets/premium_surfaces.dart';
+import '../../delivery/background/online_mode_prompts.dart';
 import '../../delivery/models/delivery_models.dart';
 import '../../delivery/providers/rider_delivery_provider.dart';
 import '../../delivery/widgets/incoming_order_request_sheet.dart';
@@ -189,6 +190,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                               (setupLoading || missingSetup.isNotEmpty)
                           ? null
                           : (active) async {
+                              if (active &&
+                                  !await prepareToGoOnline(context, ref)) {
+                                return;
+                              }
+                              if (!context.mounted) return;
                               try {
                                 await ref
                                     .read(

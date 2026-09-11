@@ -211,8 +211,20 @@ class SessionController extends Notifier<SessionState> {
   }
 
   Future<void> logout() async {
+    final api = ref.read(riderBackendApiProvider);
+    // Go Offline on the server first, while the token is still valid.
+    // Without it a signed-out rider stays matchable until their last
+    // location ages out (5 minutes).
+    if (ref.read(riderDeliveryControllerProvider).isOnline) {
+      try {
+        await api.rider.goOffline();
+      } on ApiException catch (error) {
+        _debugAuth(
+          'Offline before logout failed status=${error.statusCode ?? 'unknown'}',
+        );
+      }
+    }
     try {
-      final api = ref.read(riderBackendApiProvider);
       await api.auth.logout();
     } on ApiException catch (_) {
       // Best-effort logout — clear tokens even if server call fails.
