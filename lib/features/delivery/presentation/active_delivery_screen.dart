@@ -70,9 +70,24 @@ class ActiveDeliveryScreen extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              order.restaurantName ?? 'Restaurant',
+                              order.pickupName ?? _pickupKind(order),
                               style: Theme.of(context).textTheme.titleLarge,
                             ),
+                            if (order.isGrocery)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  'Grocery delivery',
+                                  key: const ValueKey(
+                                    'active_grocery_delivery_label',
+                                  ),
+                                  style: Theme.of(context).textTheme.labelMedium
+                                      ?.copyWith(
+                                        color: AppColors.riderPrimary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                              ),
                             const SizedBox(height: AppSpacing.xs),
                             Text(
                               '${_nonEmpty(order.customerName) ?? "Customer"} · ID: ${order.orderId}',
@@ -107,15 +122,19 @@ class ActiveDeliveryScreen extends ConsumerWidget {
             // ── Stops: pickup, then drop ──────────────────
             DeliveryStopCard(
               title: 'Pickup',
-              subtitle: 'Restaurant',
-              icon: Icons.storefront_rounded,
-              name: _nonEmpty(order.restaurantName) ?? 'Restaurant',
+              subtitle: _pickupKind(order),
+              icon: order.isGrocery
+                  ? Icons.local_grocery_store_rounded
+                  : Icons.storefront_rounded,
+              name: _nonEmpty(order.pickupName) ?? _pickupKind(order),
               address: order.pickupAddress,
               latitude: order.pickupLatitude,
               longitude: order.pickupLongitude,
               phone: order.restaurantPhone,
-              navigateLabel: 'Navigate to restaurant',
-              callLabel: 'Call restaurant',
+              navigateLabel: order.isGrocery
+                  ? 'Navigate to shop'
+                  : 'Navigate to restaurant',
+              callLabel: order.isGrocery ? 'Call shop' : 'Call restaurant',
               isCurrent: headingToPickup,
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -200,6 +219,10 @@ String? _nonEmpty(String? value) {
 }
 
 /// Before pickup the rider is heading to the restaurant; after, to the customer.
+/// What the rider is collecting from, so one screen reads correctly for both.
+String _pickupKind(ActiveDeliveryOrderModel order) =>
+    order.isGrocery ? 'Grocery shop' : 'Restaurant';
+
 bool isHeadingToPickup(ActiveDeliveryOrderModel order) {
   switch (order.deliveryStatus.trim().toLowerCase()) {
     case 'picked_up':
@@ -423,8 +446,11 @@ class _AdvanceButtonState extends ConsumerState<_AdvanceButton> {
       children: [
         if (_waitingForKitchen) ...[
           Text(
-            'The restaurant is still preparing this order. Pickup unlocks as '
-            'soon as they mark it ready.',
+            widget.order.isGrocery
+                ? 'The shop is still packing this order. Pickup unlocks as '
+                      'soon as they mark it packed.'
+                : 'The restaurant is still preparing this order. Pickup '
+                      'unlocks as soon as they mark it ready.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: AppSpacing.md),

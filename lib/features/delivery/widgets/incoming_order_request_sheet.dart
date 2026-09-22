@@ -149,12 +149,27 @@ class _IncomingOrderRequestSheetState
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'New Delivery Request',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.request.isGrocery
+                            ? 'New Grocery Delivery'
+                            : 'New Delivery Request',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (widget.request.isGrocery)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: _GroceryBadge(),
+                        ),
+                    ],
+                  ),
                 ),
+                const SizedBox(width: AppSpacing.sm),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
@@ -181,8 +196,10 @@ class _IncomingOrderRequestSheetState
                 children: [
                   Row(
                     children: [
-                      const Icon(
-                        Icons.storefront_rounded,
+                      Icon(
+                        widget.request.isGrocery
+                            ? Icons.local_grocery_store_rounded
+                            : Icons.storefront_rounded,
                         color: AppColors.riderPrimary,
                       ),
                       const SizedBox(width: AppSpacing.sm),
@@ -190,7 +207,8 @@ class _IncomingOrderRequestSheetState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if ((widget.request.restaurantName ?? '').isNotEmpty)
+                            if ((widget.request.restaurantName ?? '')
+                                .isNotEmpty)
                               Text(
                                 widget.request.restaurantName!,
                                 style: Theme.of(context).textTheme.titleSmall,
@@ -289,6 +307,32 @@ class _IncomingOrderRequestSheetState
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A small, unmistakable mark that this pickup is a grocery shop rather than a
+/// restaurant. The workflow underneath is identical.
+class _GroceryBadge extends StatelessWidget {
+  const _GroceryBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('grocery_delivery_badge'),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.riderPrimary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Text(
+        'Grocery',
+        style: TextStyle(
+          color: AppColors.riderPrimary,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
         ),
       ),
     );

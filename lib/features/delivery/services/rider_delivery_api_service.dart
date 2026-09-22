@@ -60,16 +60,20 @@ class RiderDeliveryApiService {
     );
   }
 
+  /// [orderType] tells the backend which delivery this is about. A food and a
+  /// grocery order can share an id, so it is sent on every call that names one.
   Future<ApiEnvelope<Map<String, dynamic>>> updateDeliveryStatus({
     required int orderId,
     required String deliveryStatus,
     bool? paymentCollected,
     String? notes,
+    String orderType = deliveryOrderTypeFood,
   }) {
     return _client.postObject(
       '/api/v1/riders/orders/$orderId/status',
       body: {
         'delivery_status': deliveryStatus,
+        'order_type': normalizeDeliveryOrderType(orderType),
         if (paymentCollected != null) 'payment_collected': paymentCollected,
         if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
       },

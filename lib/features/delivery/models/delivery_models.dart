@@ -44,6 +44,20 @@ DateTime _asDateTime(Object? value) {
   return DateTime.now().add(const Duration(seconds: 30));
 }
 
+/// What kind of order a delivery is for. The workflow is identical; only the
+/// wording and the badge differ, so riders do not learn two apps.
+const String deliveryOrderTypeFood = 'food';
+const String deliveryOrderTypeGrocery = 'grocery';
+
+/// normalizeDeliveryOrderType defaults anything unknown or absent to food,
+/// which is what every backend that predates grocery delivery means.
+String normalizeDeliveryOrderType(Object? value) {
+  final text = _asString(value).trim().toLowerCase();
+  return text == deliveryOrderTypeGrocery
+      ? deliveryOrderTypeGrocery
+      : deliveryOrderTypeFood;
+}
+
 class RiderAvailabilityModel {
   const RiderAvailabilityModel({
     required this.isOnline,
@@ -83,6 +97,8 @@ class RiderOrderRequestModel {
     required this.distanceKm,
     required this.amount,
     required this.expiresAt,
+    this.orderType = deliveryOrderTypeFood,
+    this.itemsSummary,
   });
 
   final int requestId;
@@ -98,6 +114,19 @@ class RiderOrderRequestModel {
   final double distanceKm;
   final double amount;
   final DateTime expiresAt;
+
+  /// "food" or "grocery". Absent means food: a build that predates grocery
+  /// delivery is only ever offered food orders.
+  final String orderType;
+
+  /// What is in the bag, for a grocery pickup.
+  final String? itemsSummary;
+
+  bool get isGrocery => orderType == deliveryOrderTypeGrocery;
+
+  /// The shop or restaurant to collect from. The backend sends the grocery
+  /// shop in the same field, so one code path reads either.
+  String? get pickupName => restaurantName;
 
   factory RiderOrderRequestModel.fromJson(Map<String, dynamic> json) {
     return RiderOrderRequestModel(
@@ -120,6 +149,10 @@ class RiderOrderRequestModel {
       distanceKm: _asDouble(json['distance_km']),
       amount: _asDouble(json['amount']),
       expiresAt: _asDateTime(json['expires_at']),
+      orderType: normalizeDeliveryOrderType(json['order_type']),
+      itemsSummary: _asString(json['items_summary']).isEmpty
+          ? null
+          : _asString(json['items_summary']),
     );
   }
 }
@@ -150,6 +183,7 @@ class ActiveDeliveryOrderModel {
     this.restaurantOrderStatus,
     this.pickupReady,
     this.nextDeliveryStatus,
+    this.orderType = deliveryOrderTypeFood,
   });
 
   final int orderId;
@@ -183,6 +217,14 @@ class ActiveDeliveryOrderModel {
 
   /// The single valid next step according to the backend, when it sends one.
   final String? nextDeliveryStatus;
+
+  /// "food" or "grocery"; absent means food.
+  final String orderType;
+
+  bool get isGrocery => orderType == deliveryOrderTypeGrocery;
+
+  /// The shop or restaurant to collect from.
+  String? get pickupName => restaurantName;
 
   bool get isRestaurantOwned {
     return restaurantOwned || _isRestaurantOwnedAssignmentType(assignmentType);
@@ -230,6 +272,7 @@ class ActiveDeliveryOrderModel {
       restaurantOrderStatus: _asStringOrNull(json['restaurant_order_status']),
       pickupReady: _asBool(json['pickup_ready']),
       nextDeliveryStatus: _asStringOrNull(json['next_delivery_status']),
+      orderType: normalizeDeliveryOrderType(json['order_type']),
     );
   }
 

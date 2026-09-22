@@ -1256,6 +1256,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
               deliveryStatus: newStatus,
               paymentCollected: paymentCollected,
               notes: notes,
+              orderType: activeOrder?.orderType ?? deliveryOrderTypeFood,
             );
         _debug(
           'status action result endpoint=/api/v1/riders/orders/:orderId/status '
@@ -1304,6 +1305,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
                   deliveryStatus: newStatus,
                   paymentCollected: paymentCollected,
                   notes: notes,
+                  orderType: activeOrder?.orderType ?? deliveryOrderTypeFood,
                 );
             _debug(
               'status action result endpoint=/api/v1/riders/orders/:orderId/status '
