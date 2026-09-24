@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_routes.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/formatters.dart';
@@ -89,9 +90,15 @@ class _IncomingOrderRequestSheetState
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to accept order: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is ApiException
+                  ? e.message
+                  : 'Could not confirm acceptance. Refresh delivery status.',
+            ),
+          ),
+        );
         Navigator.of(context).pop();
       }
     } finally {
@@ -128,7 +135,7 @@ class _IncomingOrderRequestSheetState
       riderDeliveryControllerProvider.select((s) => s.pendingRequests),
       (previous, next) {
         if (!next.any((r) => r.requestId == widget.request.requestId)) {
-          if (mounted && Navigator.canPop(context)) {
+          if (mounted && !_isLoading && Navigator.canPop(context)) {
             Navigator.of(context).pop();
           }
         }
@@ -242,7 +249,9 @@ class _IncomingOrderRequestSheetState
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(
-                          widget.request.dropAddress,
+                          widget.request.deliveryDistanceKm == null
+                              ? widget.request.dropAddress
+                              : 'Approx. ${widget.request.deliveryDistanceKm!.toStringAsFixed(0)} km from pickup',
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                       ),
@@ -259,7 +268,7 @@ class _IncomingOrderRequestSheetState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Est. Payout',
+                      'Order total',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     Text(
@@ -275,7 +284,7 @@ class _IncomingOrderRequestSheetState
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      'Total Distance',
+                      'Distance to pickup',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     Text(

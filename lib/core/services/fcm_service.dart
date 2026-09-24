@@ -47,9 +47,19 @@ class FcmService {
             .refreshPendingRequests(),
       );
       unawaited(
-        _ref.read(riderDeliveryControllerProvider.notifier).refreshActiveOrder(),
+        _ref
+            .read(riderDeliveryControllerProvider.notifier)
+            .refreshActiveOrder(),
       );
     });
+    FirebaseMessaging.onMessageOpenedApp.listen((_) => _refreshDelivery());
+    if (await messaging.getInitialMessage() != null) _refreshDelivery();
+  }
+
+  void _refreshDelivery() {
+    final delivery = _ref.read(riderDeliveryControllerProvider.notifier);
+    unawaited(delivery.refreshActiveOrder());
+    unawaited(delivery.refreshPendingRequests());
   }
 
   Future<void> _syncToken(String token) async {

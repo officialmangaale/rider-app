@@ -42,19 +42,31 @@ class OrdersScreen extends ConsumerWidget {
                   AppSpacing.xl,
                 ),
                 children: [
-                  EmptyStateCard(
-                    icon: deliveryState.isOnline
-                        ? Icons.delivery_dining_rounded
-                        : Icons.power_settings_new_rounded,
-                    title: deliveryState.isOnline
-                        ? 'No incoming requests'
-                        : 'You are offline',
-                    subtitle:
-                        deliveryState.requestErrorMessage ??
-                        (deliveryState.isOnline
-                            ? 'New orders will appear here when dispatch assigns them.'
-                            : 'Go online from Home or Availability to receive delivery requests.'),
-                  ),
+                  if (deliveryState.requestsLoading)
+                    const Center(child: CircularProgressIndicator()),
+                  if (!deliveryState.requestsLoading)
+                    EmptyStateCard(
+                      icon: deliveryState.isOnline
+                          ? Icons.delivery_dining_rounded
+                          : Icons.power_settings_new_rounded,
+                      title: deliveryState.requestErrorMessage != null
+                          ? 'Could not load requests'
+                          : deliveryState.isOnline
+                          ? 'No incoming requests'
+                          : 'You are offline',
+                      subtitle:
+                          deliveryState.requestErrorMessage ??
+                          (deliveryState.isOnline
+                              ? 'New orders will appear here when dispatch assigns them.'
+                              : 'Go online from Home or Availability to receive delivery requests.'),
+                    ),
+                  if (deliveryState.requestErrorMessage != null)
+                    TextButton(
+                      onPressed: () => ref
+                          .read(riderDeliveryControllerProvider.notifier)
+                          .refreshPendingRequests(),
+                      child: const Text('Retry'),
+                    ),
                 ],
               )
             : ListView.separated(
@@ -168,7 +180,9 @@ class _IncomingRequestCardState extends ConsumerState<_IncomingRequestCard> {
           _AddressLine(
             icon: Icons.location_on_rounded,
             color: AppColors.ember,
-            text: request.dropAddress,
+            text: request.deliveryDistanceKm == null
+                ? request.dropAddress
+                : 'Approx. ${request.deliveryDistanceKm!.toStringAsFixed(0)} km from pickup',
           ),
           const SizedBox(height: AppSpacing.lg),
           Row(
@@ -217,7 +231,13 @@ class _IncomingRequestCardState extends ConsumerState<_IncomingRequestCard> {
       if (mounted) context.go(AppRoutes.delivery);
     } on ApiException catch (error) {
       if (mounted) {
-        showLuxurySnackBar(context, error.message, isError: true);
+        showLuxurySnackBar(
+          context,
+          error.message,
+          isError:
+              error.errorCode != 'ORDER_ALREADY_ASSIGNED' &&
+              error.errorCode != 'OFFER_EXPIRED',
+        );
       }
     } catch (_) {
       if (mounted) {

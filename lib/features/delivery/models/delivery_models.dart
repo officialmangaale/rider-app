@@ -99,6 +99,7 @@ class RiderOrderRequestModel {
     required this.expiresAt,
     this.orderType = deliveryOrderTypeFood,
     this.itemsSummary,
+    this.deliveryDistanceKm,
   });
 
   final int requestId;
@@ -121,6 +122,7 @@ class RiderOrderRequestModel {
 
   /// What is in the bag, for a grocery pickup.
   final String? itemsSummary;
+  final double? deliveryDistanceKm;
 
   bool get isGrocery => orderType == deliveryOrderTypeGrocery;
 
@@ -147,6 +149,9 @@ class RiderOrderRequestModel {
       dropLatitude: _asDouble(json['drop_latitude']),
       dropLongitude: _asDouble(json['drop_longitude']),
       distanceKm: _asDouble(json['distance_km']),
+      deliveryDistanceKm: json['delivery_distance_km'] == null
+          ? null
+          : _asDouble(json['delivery_distance_km']),
       amount: _asDouble(json['amount']),
       expiresAt: _asDateTime(json['expires_at']),
       orderType: normalizeDeliveryOrderType(json['order_type']),

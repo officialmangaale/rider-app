@@ -120,6 +120,7 @@ class RiderDeliveryState {
     this.pollingFallbackActive = false,
     this.pendingRequests = const [],
     this.requestErrorMessage,
+    this.requestsLoading = false,
     this.activeOrderId,
     this.activeOrder,
     this.seenOfferKeys = const {},
@@ -140,6 +141,7 @@ class RiderDeliveryState {
   final bool pollingFallbackActive;
   final List<RiderOrderRequestModel> pendingRequests;
   final String? requestErrorMessage;
+  final bool requestsLoading;
   final int? activeOrderId;
   final ActiveDeliveryOrderModel? activeOrder;
   final Set<String> seenOfferKeys;
@@ -180,6 +182,7 @@ class RiderDeliveryState {
     List<RiderOrderRequestModel>? pendingRequests,
     String? requestErrorMessage,
     bool clearRequestError = false,
+    bool? requestsLoading,
     int? activeOrderId,
     bool clearActiveOrderId = false,
     ActiveDeliveryOrderModel? activeOrder,
@@ -199,6 +202,7 @@ class RiderDeliveryState {
     bool? foregroundOnlyTracking,
   }) {
     return RiderDeliveryState(
+      requestsLoading: requestsLoading ?? this.requestsLoading,
       isOnline: isOnline ?? this.isOnline,
       isAvailable: isAvailable ?? this.isAvailable,
       socketConnected: socketConnected ?? this.socketConnected,
@@ -584,6 +588,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   void handleAppLifecycleState(AppLifecycleState lifecycleState) {
     switch (lifecycleState) {
       case AppLifecycleState.resumed:
+        unawaited(refreshActiveOrder());
         _isForeground = true;
         _debug('app resumed');
         // The app alerts in-app again: stop service notifications, hide the
@@ -905,45 +910,9 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   }
 
   void _onNewDeliveryRequest(RiderOrderRequestModel request) {
-    if (!request.expiresAt.toUtc().isAfter(DateTime.now().toUtc())) {
-      _debug(
-        'expired request ignored requestId=${request.requestId} orderId=${request.orderId}',
-      );
-      return;
-    }
-
-    // Compared by offer, not request id: rider-service re-offers a lapsed
-    // request under the same id with a new expiry, and that must replace the
-    // stale card rather than be dropped as a duplicate.
-    final offerKey = _offerKey(request);
-    if (state.pendingRequests.any((item) => _offerKey(item) == offerKey)) {
-      _debug(
-        'duplicate request ignored requestId=${request.requestId} orderId=${request.orderId}',
-      );
-      return;
-    }
-
-    // seenOfferKeys tracks every offer that has reached this rider, so it is
-    // the right guard for the alert. Without it an offer replayed after a
-    // reconnect — or arriving over both the socket and polling — sounds a
-    // second time for an order already seen or handled.
-    final isFirstSighting = shouldAlertForRequest(
-      offerKey: offerKey,
-      seenOfferKeys: state.seenOfferKeys,
-    );
-    _debug(
-      'request received requestId=${request.requestId} orderId=${request.orderId} '
-      'firstSighting=$isFirstSighting',
-    );
-    state = state.copyWith(
-      pendingRequests: _mergePendingRequests(state.pendingRequests, [request]),
-      seenOfferKeys: {...state.seenOfferKeys, offerKey},
-      clearRequestError: true,
-    );
-
-    if (isFirstSighting) {
-      unawaited(_alertNewOffers([request]));
-    }
+    // A socket message can arrive late, after cancellation or assignment.
+    // REST decides which offers are still valid and handles alert deduplication.
+    unawaited(refreshPendingRequests());
   }
 
   /// Alerts once for offers that are new to the rider.
@@ -1009,6 +978,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     state = state.copyWith(socketConnected: connected);
     _debug('socket connected=$connected');
     if (connected) {
+      unawaited(refreshActiveOrder());
       unawaited(refreshPendingRequests());
     } else if (state.isOnline) {
       _startFallbackPolling();
@@ -1031,23 +1001,18 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       'restaurant-owned assignment orderId=$orderId '
       'restaurantId=${restaurantId ?? 'unknown'} replay=$isReplay',
     );
-    state = state.copyWith(
-      activeOrderId: orderId,
-      isAvailable: false,
-      pendingRequests: state.pendingRequests
-          .where((request) => request.orderId != orderId)
-          .toList(),
-    );
     await fetchActiveOrder(orderId);
     ref.invalidate(activeOrdersProvider);
 
-    if (!isReplay) {
+    if (!isReplay && state.activeOrder?.orderId == orderId) {
       // Ringtone and vibration announce a newly assigned order.
       FlutterRingtonePlayer().playNotification();
     }
   }
 
   Future<void> refreshPendingRequests() async {
+    if (state.requestsLoading) return;
+    state = state.copyWith(requestsLoading: true);
     try {
       final response = await ref
           .read(riderDeliveryApiServiceProvider)
@@ -1098,6 +1063,8 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
         requestErrorMessage: 'Could not refresh order requests.',
       );
       _debug('pending requests refresh failed error=$error');
+    } finally {
+      state = state.copyWith(requestsLoading: false);
     }
   }
 
@@ -1153,8 +1120,8 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     // The rider has answered: stop ringing whatever the outcome.
     unawaited(ref.read(incomingRingerProvider).stop());
     unawaited(_background.cancelRequestAlert(requestId));
+    final pendingOrderId = _pendingOrderIdForRequest(requestId);
     try {
-      final pendingOrderId = _pendingOrderIdForRequest(requestId);
       final response = await ref
           .read(riderDeliveryApiServiceProvider)
           .acceptOrderRequest(requestId);
@@ -1184,13 +1151,48 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
         await _startLocationTracking(requestPermission: false);
       }
     } on ApiException catch (e) {
+      if (await _recoverAcceptance(pendingOrderId)) return;
+      await refreshPendingRequests();
       _debug(
         'accept request failed status=${e.statusCode ?? 'unknown'} code=${e.errorCode ?? 'none'} requestId=$requestId',
       );
       rethrow;
     } catch (e) {
+      if (await _recoverAcceptance(pendingOrderId)) return;
+      await refreshPendingRequests();
       _debug('accept request failed error=$e requestId=$requestId');
       rethrow;
+    }
+  }
+
+  Future<bool> _recoverAcceptance(int? expectedOrderId) async {
+    try {
+      final response = await ref
+          .read(riderDeliveryApiServiceProvider)
+          .getActiveDeliveryOrder(0);
+      if (expectedOrderId != null && response.data.orderId == expectedOrderId) {
+        state = state.copyWith(
+          activeOrder: response.data,
+          activeOrderId: expectedOrderId,
+          isAvailable: false,
+          pendingRequests: const [],
+          clearRequestError: true,
+        );
+        return true;
+      }
+      return false;
+    } on ApiException catch (error) {
+      if (error.statusCode == 404) return false;
+      state = state.copyWith(
+        pendingRequests: const [],
+        requestErrorMessage:
+            'Could not confirm acceptance. Reconnect and refresh delivery status.',
+      );
+      throw const ApiException(
+        message:
+            'Could not confirm acceptance. Refresh delivery status before trying again.',
+        errorCode: 'ACCEPTANCE_UNCONFIRMED',
+      );
     }
   }
 
@@ -1394,6 +1396,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     _lastPollAt = DateTime.now();
     try {
       await refreshPendingRequests();
+      await refreshActiveOrder();
     } finally {
       _pollInFlight = false;
     }
