@@ -23,6 +23,7 @@ class BackgroundModeStore {
   static const _lastUploadKey = 'rider_bg_last_upload_ms';
   static const _sequenceKey = 'rider_bg_sequence';
   static const _alertedKey = 'rider_bg_alerted_offers';
+  static const _offerOrdersKey = 'rider_bg_offer_orders';
   static const _bubbleEnabledKey = 'rider_bubble_enabled';
   static const _disclosureKey = 'rider_bg_disclosure_accepted_v1';
 
@@ -75,6 +76,37 @@ class BackgroundModeStore {
     );
   }
 
+  /// Which order each posted offer notification is about, as `requestId:orderId`
+  /// pairs. A notification is identified by its request id, but "another rider
+  /// took it" arrives naming the order, and on Android a notification's payload
+  /// cannot be read back to find the match. Both isolates write it.
+  Future<void> rememberOfferOrder(int requestId, int orderId) async {
+    await _prefs.reload();
+    final existing = _prefs.getStringList(_offerOrdersKey) ?? const <String>[];
+    final merged = <String>[
+      ...existing.where((entry) => !entry.startsWith('$requestId:')),
+      '$requestId:$orderId',
+    ];
+    await _prefs.setStringList(
+      _offerOrdersKey,
+      merged.length <= maxAlertedOfferKeys
+          ? merged
+          : merged.sublist(merged.length - maxAlertedOfferKeys),
+    );
+  }
+
+  /// Request ids of offer notifications posted for [orderId].
+  List<int> requestIdsForOrder(int orderId) {
+    final ids = <int>[];
+    for (final entry in _prefs.getStringList(_offerOrdersKey) ?? const []) {
+      final parts = entry.split(':');
+      if (parts.length != 2 || int.tryParse(parts[1]) != orderId) continue;
+      final requestId = int.tryParse(parts[0]);
+      if (requestId != null) ids.add(requestId);
+    }
+    return ids;
+  }
+
   /// Opt-in for the floating bubble. Off until the rider turns it on.
   bool get bubbleEnabled => _prefs.getBool(_bubbleEnabledKey) ?? false;
   Future<void> setBubbleEnabled(bool value) =>
@@ -92,5 +124,6 @@ class BackgroundModeStore {
     await _prefs.remove(_activeDeliveryKey);
     await _prefs.remove(_lastUploadKey);
     await _prefs.remove(_alertedKey);
+    await _prefs.remove(_offerOrdersKey);
   }
 }

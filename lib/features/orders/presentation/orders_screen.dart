@@ -200,7 +200,7 @@ class _IncomingRequestCardState extends ConsumerState<_IncomingRequestCard> {
             children: [
               Expanded(
                 child: SecondaryButton(
-                  label: 'Reject',
+                  label: 'Decline',
                   icon: Icons.close_rounded,
                   onPressed: _acting ? null : _reject,
                 ),

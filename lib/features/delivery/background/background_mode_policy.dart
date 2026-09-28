@@ -127,15 +127,36 @@ class PolledOffer {
     required this.distanceKm,
     required this.amount,
     required this.paymentMode,
+    this.orderType = 'food',
+    this.pickupAddress = '',
+    this.deliveryArea = '',
   });
 
   final int requestId;
   final int orderId;
   final DateTime expiresAt;
   final String restaurantName;
+
+  /// From the rider to the pickup.
   final double? distanceKm;
+
+  /// The order value carried by the offer. It is not the rider's payout, which
+  /// is credited on delivery and is not part of an offer.
   final double? amount;
   final String paymentMode;
+
+  /// "food" or "grocery".
+  final String orderType;
+
+  /// The restaurant's address. Never the customer's: that is withheld until
+  /// the rider accepts.
+  final String pickupAddress;
+
+  /// A coarse description of where the order goes (see [deliveryAreaFor]).
+  final String deliveryArea;
+
+  /// What the rider sees as the order's reference.
+  String get orderRef => '#$orderId';
 
   String get offerKey =>
       requestOfferKey(requestId: requestId, expiresAt: expiresAt);
@@ -165,10 +186,60 @@ List<PolledOffer> parsePendingOffers(Object? body) {
         distanceKm: _asDouble(item['distance_km']),
         amount: _asDouble(item['amount']),
         paymentMode: '${item['payment_mode'] ?? ''}'.trim(),
+        orderType: _orderType(item['order_type']),
+        pickupAddress: '${item['pickup_address'] ?? ''}'.trim(),
+        deliveryArea: deliveryAreaFor(_asDouble(item['delivery_distance_km'])),
       ),
     );
   }
   return offers;
+}
+
+/// Message types of the offer push (see rider-service internal/push).
+const offerPushType = 'DELIVERY_ORDER_REQUEST';
+const offerClosedPushType = 'DELIVERY_ORDER_REQUEST_CLOSED';
+
+/// Builds an offer from an FCM data payload, or null when it is not a usable
+/// offer: wrong type, no request id, no order id, or no expiry. A push is a
+/// hint and can arrive late, so the expiry is what decides whether to alert.
+PolledOffer? offerFromPushData(Map<String, dynamic> data) {
+  if ('${data['type'] ?? ''}'.trim().toUpperCase() != offerPushType) {
+    return null;
+  }
+  final requestId = _asInt(data['request_id']);
+  final orderId = _asInt(data['order_id']);
+  final expiresAt = DateTime.tryParse('${data['expires_at'] ?? ''}');
+  if (requestId == null ||
+      requestId <= 0 ||
+      orderId == null ||
+      orderId <= 0 ||
+      expiresAt == null) {
+    return null;
+  }
+  final area = '${data['delivery_area'] ?? ''}'.trim();
+  return PolledOffer(
+    requestId: requestId,
+    orderId: orderId,
+    expiresAt: expiresAt,
+    restaurantName: '${data['restaurant_name'] ?? ''}'.trim(),
+    distanceKm: _asDouble(data['distance_km']),
+    amount: _asDouble(data['amount']),
+    paymentMode: '${data['payment_mode'] ?? ''}'.trim(),
+    orderType: _orderType(data['order_type']),
+    pickupAddress: '${data['pickup_address'] ?? ''}'.trim(),
+    deliveryArea: area.isNotEmpty
+        ? area
+        : deliveryAreaFor(_asDouble(data['delivery_distance_km'])),
+  );
+}
+
+/// The order an "offer closed" push is about, or null when it is not one.
+int? closedOfferOrderId(Map<String, dynamic> data) {
+  if ('${data['type'] ?? ''}'.trim().toUpperCase() != offerClosedPushType) {
+    return null;
+  }
+  final orderId = _asInt(data['order_id']);
+  return orderId != null && orderId > 0 ? orderId : null;
 }
 
 /// What the service should do with the notifications it owns after a poll.
@@ -215,16 +286,52 @@ List<String> rememberAlertedOfferKeys(
   return merged.sublist(merged.length - maxAlertedOfferKeys);
 }
 
-/// Lock-screen-safe text for an offer: restaurant, distance, amount.
+/// The delivery area shown for an offer: the rounded straight-line distance
+/// from the pickup. The data model has no structured locality for a delivery
+/// and the customer's address is withheld until acceptance, so this is all
+/// that can be said without guessing. Matches the backend's label.
+String deliveryAreaFor(double? deliveryDistanceKm) {
+  if (deliveryDistanceKm == null || deliveryDistanceKm <= 0) return '';
+  return 'Approx. ${deliveryDistanceKm.toStringAsFixed(0)} km from pickup';
+}
+
+/// Title of an offer notification: what it is, and which order.
+String requestNotificationTitle(PolledOffer offer) => offer.orderId > 0
+    ? 'New delivery request ${offer.orderRef}'
+    : 'New delivery request';
+
+/// The collapsed one-line text: restaurant, distance to pickup, order value.
+/// Nothing that identifies the customer.
 String requestNotificationBody(PolledOffer offer) {
   final parts = <String>[
     if (offer.restaurantName.isNotEmpty) offer.restaurantName,
-    if (offer.distanceKm != null) '${offer.distanceKm!.toStringAsFixed(1)} km',
-    if (offer.amount != null) 'Rs ${offer.amount!.toStringAsFixed(0)}',
+    if (offer.distanceKm != null)
+      '${offer.distanceKm!.toStringAsFixed(1)} km to pickup',
+    if (offer.deliveryArea.isNotEmpty) offer.deliveryArea,
+    if (offer.amount != null) 'Order Rs ${offer.amount!.toStringAsFixed(0)}',
     if (offer.paymentMode.isNotEmpty) offer.paymentMode.toUpperCase(),
   ];
   final summary = parts.isEmpty ? 'New delivery nearby' : parts.join(' · ');
   return '$summary. Tap to open and respond.';
+}
+
+/// The expanded text: one fact per line, so the rider can decide from the
+/// notification alone.
+String requestNotificationDetails(PolledOffer offer) {
+  final lines = <String>[
+    [
+      if (offer.orderId > 0) offer.orderRef,
+      if (offer.restaurantName.isNotEmpty) offer.restaurantName,
+    ].join(' · '),
+    if (offer.pickupAddress.isNotEmpty) 'Pickup: ${offer.pickupAddress}',
+    if (offer.deliveryArea.isNotEmpty) 'Delivery: ${offer.deliveryArea}',
+    if (offer.distanceKm != null)
+      'Distance to pickup: ${offer.distanceKm!.toStringAsFixed(1)} km',
+    if (offer.amount != null)
+      'Order value: Rs ${offer.amount!.toStringAsFixed(0)}'
+          '${offer.paymentMode.isEmpty ? '' : ' (${offer.paymentMode.toUpperCase()})'}',
+  ].where((line) => line.trim().isNotEmpty).toList();
+  return lines.isEmpty ? 'New delivery nearby' : lines.join('\n');
 }
 
 /// Body for POST /api/v1/location/update from the service. Values that the
@@ -273,6 +380,9 @@ List<dynamic> _extractList(Object? data) {
   }
   return const <dynamic>[];
 }
+
+String _orderType(Object? value) =>
+    '$value'.trim().toLowerCase() == 'grocery' ? 'grocery' : 'food';
 
 int? _asInt(Object? value) {
   if (value is int) return value;

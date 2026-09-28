@@ -70,13 +70,75 @@ class FakeNotifier implements RequestAlertNotifier {
     showing[offer.requestId] = offer;
   }
 
+  /// Quiet outcome notifications ("accepted", "already taken"...), in the order
+  /// they were posted; the last one for a request is what the rider sees.
+  final List<FakeOutcome> outcomes = [];
+
+  @override
+  Future<void> showOutcome({
+    required int requestId,
+    required String title,
+    required String body,
+    String? payload,
+    Duration visibleFor = const Duration(seconds: 20),
+    bool inProgress = false,
+  }) async {
+    outcomes.add(
+      FakeOutcome(requestId, title, body, payload, visibleFor, inProgress),
+    );
+    // An outcome replaces the offer under the same notification id.
+    showing.remove(requestId);
+  }
+
+  FakeOutcome? lastOutcomeFor(int requestId) {
+    for (final outcome in outcomes.reversed) {
+      if (outcome.requestId == requestId) return outcome;
+    }
+    return null;
+  }
+
+  final Map<int, int> orderByRequest = {};
+
+  @override
+  Future<void> cancelOffersForOrder(int orderId) async {
+    for (final entry in orderByRequest.entries.toList()) {
+      if (entry.value == orderId) showing.remove(entry.key);
+    }
+  }
+
+  @override
+  Future<DeliveryAlertHealth> health() async => DeliveryAlertHealth(
+    notificationsEnabled: permission,
+    channelImportance: null,
+  );
+
   @override
   Future<void> cancelRequest(int requestId) async {
     showing.remove(requestId);
+    // Cancelling removes whatever is shown under the id, progress included.
+    outcomes.removeWhere((o) => o.requestId == requestId);
   }
 
   @override
   Future<void> cancelAllRequests() async => showing.clear();
+}
+
+class FakeOutcome {
+  const FakeOutcome(
+    this.requestId,
+    this.title,
+    this.body,
+    this.payload,
+    this.visibleFor,
+    this.inProgress,
+  );
+
+  final int requestId;
+  final String title;
+  final String body;
+  final String? payload;
+  final Duration visibleFor;
+  final bool inProgress;
 }
 
 class FakeRingtoneOutput implements RingtoneOutput {

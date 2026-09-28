@@ -640,9 +640,28 @@ class NotificationsApi {
     required String platform,
     required String pushToken,
   }) {
+    // Both keys, on purpose. The endpoint's documented key is `push_token`, and
+    // it now also accepts `device_token`; this app sent only `device_token`,
+    // which the previous endpoint rejected with a 400, so no rider phone was
+    // ever registered for push. Sending both works against either version.
     return _client.postObject(
       '/api/v1/notifications/device-token',
-      body: {'platform': platform, 'device_token': pushToken},
+      body: {
+        'platform': platform,
+        'push_token': pushToken,
+        'device_token': pushToken,
+      },
+    );
+  }
+
+  /// Forgets a device token at sign-out, so the next person to use this phone
+  /// does not receive this rider's delivery requests.
+  Future<ApiEnvelope<Map<String, dynamic>>> unregisterDeviceToken({
+    required String pushToken,
+  }) {
+    return _client.deleteObject(
+      '/api/v1/notifications/device-token',
+      body: {'push_token': pushToken, 'device_token': pushToken},
     );
   }
 

@@ -41,7 +41,8 @@ DateTime _asDateTime(Object? value) {
       return parsed;
     }
   }
-  return DateTime.now().add(const Duration(seconds: 30));
+  // An absent/invalid server expiry must never invent another acceptance window.
+  return DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
 }
 
 /// What kind of order a delivery is for. The workflow is identical; only the

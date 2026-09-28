@@ -13,7 +13,7 @@ import '../../restaurant_rider/providers/restaurant_rider_provider.dart';
 import '../background/background_mode_controller.dart';
 import '../background/background_mode_store.dart';
 import '../background/incoming_ringer.dart';
-import '../background/request_alert_notifier.dart';
+import 'request_notification_provider.dart';
 import '../background/rider_platform.dart';
 import '../models/delivery_models.dart';
 import '../services/rider_delivery_api_service.dart';
@@ -30,7 +30,7 @@ final backgroundModeControllerProvider = Provider<BackgroundModeController>((
     store: BackgroundModeStore(ref.watch(sharedPreferencesProvider)),
     service: PluginOnlineServiceGateway(),
     platform: ref.watch(riderPlatformProvider),
-    notifier: RequestAlertNotifier(),
+    notifier: ref.watch(requestAlertNotifierProvider),
   );
 });
 
@@ -263,6 +263,10 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   Timer? _fallbackPollTimer;
   DateTime? _lastPollAt;
   bool _pollInFlight = false;
+  Future<void>? _pendingRefresh;
+  bool _pendingRefreshQueued = false;
+  Future<void>? _requestAction;
+  String? _requestActionKey;
 
   @override
   RiderDeliveryState build() {
@@ -1010,15 +1014,35 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     }
   }
 
-  Future<void> refreshPendingRequests() async {
-    if (state.requestsLoading) return;
+  Future<void> refreshPendingRequests() {
+    if (_pendingRefresh != null) {
+      // An event may arrive after the current GET took its snapshot. Re-read
+      // once before resolving all waiters instead of silently dropping it.
+      _pendingRefreshQueued = true;
+      return _pendingRefresh!;
+    }
+    return _pendingRefresh = _drainPendingRefreshes().whenComplete(() {
+      _pendingRefresh = null;
+    });
+  }
+
+  Future<void> _drainPendingRefreshes() async {
+    do {
+      _pendingRefreshQueued = false;
+      await _refreshPendingRequests();
+    } while (_pendingRefreshQueued);
+  }
+
+  Future<void> _refreshPendingRequests() async {
     state = state.copyWith(requestsLoading: true);
     try {
       final response = await ref
           .read(riderDeliveryApiServiceProvider)
           .getPendingOrderRequests();
 
-      final pending = _mergePendingRequests(const [], response.data);
+      final pending = state.hasActiveDelivery
+          ? <RiderOrderRequestModel>[]
+          : _mergePendingRequests(const [], response.data);
       final offerKeys = pending.map(_offerKey).toList();
       // This is the only path that delivers an offer while the socket is
       // down, so it has to ring for a new one exactly as the socket would.
@@ -1047,9 +1071,10 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       } else if (error.statusCode == 404) {
         state = state.copyWith(
           pendingRequests: const [],
-          clearRequestError: true,
+          requestErrorMessage:
+              'Delivery request API is unavailable. Please retry or contact support.',
         );
-        _debug('pending requests refresh empty status=404');
+        _debug('pending requests endpoint missing status=404');
       } else {
         state = state.copyWith(
           requestErrorMessage: _requestErrorMessage(error),
@@ -1116,7 +1141,27 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   Future<void> refreshActiveOrder() =>
       fetchActiveOrder(state.activeOrderId ?? state.activeOrder?.orderId ?? 0);
 
-  Future<void> acceptRequest(int requestId) async {
+  Future<void> _runRequestAction(String key, Future<void> Function() action) {
+    if (_requestAction != null) {
+      if (_requestActionKey == key) return _requestAction!;
+      return Future.error(
+        const ApiException(
+          message: 'Please wait for your current response to finish.',
+          errorCode: 'REQUEST_ACTION_IN_PROGRESS',
+        ),
+      );
+    }
+    _requestActionKey = key;
+    return _requestAction = action().whenComplete(() {
+      _requestAction = null;
+      _requestActionKey = null;
+    });
+  }
+
+  Future<void> acceptRequest(int requestId) =>
+      _runRequestAction('accept:$requestId', () => _acceptRequest(requestId));
+
+  Future<void> _acceptRequest(int requestId) async {
     // The rider has answered: stop ringing whatever the outcome.
     unawaited(ref.read(incomingRingerProvider).stop());
     unawaited(_background.cancelRequestAlert(requestId));
@@ -1130,9 +1175,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       );
       state = state.copyWith(
         isAvailable: false,
-        pendingRequests: state.pendingRequests
-            .where((r) => r.requestId != requestId)
-            .toList(),
+        pendingRequests: const [],
         clearRequestError: true,
       );
       final acceptedOrderId = _acceptedOrderId(response.data) ?? pendingOrderId;
@@ -1196,7 +1239,10 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
     }
   }
 
-  Future<void> rejectRequest(int requestId) async {
+  Future<void> rejectRequest(int requestId) =>
+      _runRequestAction('decline:$requestId', () => _rejectRequest(requestId));
+
+  Future<void> _rejectRequest(int requestId) async {
     unawaited(ref.read(incomingRingerProvider).stop());
     unawaited(_background.cancelRequestAlert(requestId));
     try {
@@ -1215,6 +1261,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
       _debug(
         'reject request failed status=${e.statusCode ?? 'unknown'} code=${e.errorCode ?? 'none'} requestId=$requestId',
       );
+      await refreshPendingRequests();
       rethrow;
     } catch (e) {
       _debug('reject request failed error=$e requestId=$requestId');
@@ -1430,7 +1477,7 @@ class RiderDeliveryController extends Notifier<RiderDeliveryState> {
   ) {
     final byKey = <String, RiderOrderRequestModel>{};
     for (final request in [...existing, ...incoming]) {
-      if (request.requestId <= 0 && request.orderId <= 0) {
+      if (request.requestId <= 0 || request.orderId <= 0) {
         _debug('ignored malformed request without identifiers');
         continue;
       }

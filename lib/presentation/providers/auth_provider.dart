@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/router/app_routes.dart';
+import '../../core/services/fcm_service.dart';
 import '../../domain/entities/app_models.dart';
 import '../../features/delivery/providers/rider_delivery_provider.dart';
 import '../../features/restaurant_rider/providers/restaurant_rider_provider.dart';
@@ -224,6 +225,9 @@ class SessionController extends Notifier<SessionState> {
         );
       }
     }
+    // Stop this phone receiving the rider's delivery requests, while the token
+    // is still valid. Never blocks or fails the sign-out.
+    await ref.read(fcmServiceProvider).unregister();
     try {
       await api.auth.logout();
     } on ApiException catch (_) {

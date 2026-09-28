@@ -19,6 +19,9 @@
         android:label="Mangaale Express"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:exported="false" />
         <!-- Google Maps key for the delivery map. The value is a build
              placeholder filled from android/local.properties or the
              MAPS_API_KEY environment variable (see app/build.gradle.kts);
