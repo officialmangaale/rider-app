@@ -596,6 +596,9 @@ class EarningsReport {
     this.deliveryFees = 0,
     required this.trend,
     required this.payoutHistory,
+    this.walletBalance = 0,
+    this.pendingPayout = 0,
+    this.settledPayout = 0,
   });
 
   final double daily;
@@ -607,6 +610,19 @@ class EarningsReport {
   final double deliveryFees;
   final List<EarningsPoint> trend;
   final List<EarningsPoint> payoutHistory;
+
+  /// Backend-computed net-payable wallet balance (platform upgrade Module
+  /// 21) — positive means the platform still owes the rider; negative means
+  /// the rider owes the platform (e.g. uncollected COD cash). Never
+  /// recalculated on-device.
+  final double walletBalance;
+
+  /// The positive portion of [walletBalance]: what's currently owed to the
+  /// rider, not yet settled.
+  final double pendingPayout;
+
+  /// Lifetime total already paid out via recorded settlements.
+  final double settledPayout;
 
   factory EarningsReport.fromJson(Map<String, dynamic> json) {
     final totalEarnings = _asDouble(
@@ -661,6 +677,15 @@ class EarningsReport {
       payoutHistory: _earningsPointsFromJson(
         _firstPresent([json['payoutHistory'], json['payout_history']]),
       ),
+      walletBalance: _asDouble(
+        _firstPresent([json['wallet_balance'], json['walletBalance']]),
+      ),
+      pendingPayout: _asDouble(
+        _firstPresent([json['pending_payout'], json['pendingPayout']]),
+      ),
+      settledPayout: _asDouble(
+        _firstPresent([json['settled_payout'], json['settledPayout']]),
+      ),
     );
   }
 
@@ -674,6 +699,9 @@ class EarningsReport {
     double? deliveryFees,
     List<EarningsPoint>? trend,
     List<EarningsPoint>? payoutHistory,
+    double? walletBalance,
+    double? pendingPayout,
+    double? settledPayout,
   }) {
     return EarningsReport(
       daily: daily ?? this.daily,
@@ -685,6 +713,9 @@ class EarningsReport {
       deliveryFees: deliveryFees ?? this.deliveryFees,
       trend: trend ?? this.trend,
       payoutHistory: payoutHistory ?? this.payoutHistory,
+      walletBalance: walletBalance ?? this.walletBalance,
+      pendingPayout: pendingPayout ?? this.pendingPayout,
+      settledPayout: settledPayout ?? this.settledPayout,
     );
   }
 }

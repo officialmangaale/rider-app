@@ -37,7 +37,9 @@ class EarningsState {
                 report.tips > 0 ||
                 report.bonus > 0 ||
                 report.trend.any((point) => point.amount > 0) ||
-                report.payoutHistory.any((point) => point.amount > 0)));
+                report.payoutHistory.any((point) => point.amount > 0) ||
+                report.walletBalance != 0 ||
+                report.settledPayout > 0));
   }
 
   EarningsState copyWith({

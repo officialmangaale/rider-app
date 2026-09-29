@@ -76,6 +76,11 @@ class EarningsScreen extends ConsumerWidget {
           final hasTrend =
               earnings.trend.isNotEmpty &&
               earnings.trend.any((point) => point.amount > 0);
+          final hasWallet =
+              earnings.walletBalance != 0 ||
+              earnings.pendingPayout != 0 ||
+              earnings.settledPayout != 0;
+          final walletOwedToRider = earnings.walletBalance >= 0;
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(
@@ -154,6 +159,41 @@ class EarningsScreen extends ConsumerWidget {
                         _EarningsRow(
                           label: 'Bonus',
                           value: Formatters.currency(earnings.bonus),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+              if (hasWallet) ...[
+                const SizedBox(height: AppSpacing.xl),
+                GlassCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SectionHeader(
+                        title: 'Wallet',
+                        subtitle: walletOwedToRider
+                            ? 'What the platform currently owes you.'
+                            : 'You currently owe the platform (e.g. uncollected COD cash).',
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      _EarningsRow(
+                        label: walletOwedToRider
+                            ? 'Wallet balance'
+                            : 'Wallet balance (you owe)',
+                        value: Formatters.currency(
+                          earnings.walletBalance.abs(),
+                        ),
+                      ),
+                      if (earnings.pendingPayout > 0)
+                        _EarningsRow(
+                          label: 'Pending payout',
+                          value: Formatters.currency(earnings.pendingPayout),
+                        ),
+                      if (earnings.settledPayout > 0)
+                        _EarningsRow(
+                          label: 'Settled to date',
+                          value: Formatters.currency(earnings.settledPayout),
                         ),
                     ],
                   ),
