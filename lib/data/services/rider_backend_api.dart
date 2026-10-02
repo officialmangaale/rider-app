@@ -21,7 +21,8 @@ class RiderBackendApi {
       delivery = DeliveryApi(client),
       location = LocationApi(client),
       earnings = EarningsApi(client),
-      notifications = NotificationsApi(client);
+      notifications = NotificationsApi(client),
+      support = SupportApi(client);
 
   final AuthApi auth;
   final RiderApi rider;
@@ -30,6 +31,7 @@ class RiderBackendApi {
   final LocationApi location;
   final EarningsApi earnings;
   final NotificationsApi notifications;
+  final SupportApi support;
 
   /// Legacy accessor aliases used by older providers/screens.
   RiderApi get profile => rider;
@@ -640,9 +642,28 @@ class NotificationsApi {
     required String platform,
     required String pushToken,
   }) {
+    // Both keys, on purpose. The endpoint's documented key is `push_token`, and
+    // it now also accepts `device_token`; this app sent only `device_token`,
+    // which the previous endpoint rejected with a 400, so no rider phone was
+    // ever registered for push. Sending both works against either version.
     return _client.postObject(
       '/api/v1/notifications/device-token',
-      body: {'platform': platform, 'device_token': pushToken},
+      body: {
+        'platform': platform,
+        'push_token': pushToken,
+        'device_token': pushToken,
+      },
+    );
+  }
+
+  /// Forgets a device token at sign-out, so the next person to use this phone
+  /// does not receive this rider's delivery requests.
+  Future<ApiEnvelope<Map<String, dynamic>>> unregisterDeviceToken({
+    required String pushToken,
+  }) {
+    return _client.deleteObject(
+      '/api/v1/notifications/device-token',
+      body: {'push_token': pushToken, 'device_token': pushToken},
     );
   }
 
@@ -655,5 +676,45 @@ class NotificationsApi {
 
   Future<ApiEnvelope<Map<String, dynamic>>> unreadCount() {
     return _client.getObject('/api/v1/notifications/unread-count');
+  }
+}
+
+// =============================================================================
+// Support — tickets raised by the rider, and the operations contact details.
+// Backend group: /api/v1/support
+// =============================================================================
+
+class SupportApi {
+  const SupportApi(this._client);
+  final ApiClient _client;
+
+  /// POST /api/v1/support/tickets. [orderId] must be numeric and one of the
+  /// rider's own deliveries; the server rejects anything else.
+  Future<ApiEnvelope<Map<String, dynamic>>> createTicket({
+    required String subject,
+    required String description,
+    String category = 'other',
+    int? orderId,
+  }) {
+    return _client.postObject(
+      '/api/v1/support/tickets',
+      body: {
+        'subject': subject,
+        'description': description,
+        'category': category,
+        'order_id': ?orderId,
+      },
+    );
+  }
+
+  /// GET /api/v1/support/tickets — the rider's own tickets, newest first.
+  Future<ApiEnvelope<Map<String, dynamic>>> myTickets() {
+    return _client.getObject('/api/v1/support/tickets');
+  }
+
+  /// GET /api/v1/support/contact — phone/email/emergency number, each empty
+  /// when operations has not configured it.
+  Future<ApiEnvelope<Map<String, dynamic>>> contact() {
+    return _client.getObject('/api/v1/support/contact');
   }
 }

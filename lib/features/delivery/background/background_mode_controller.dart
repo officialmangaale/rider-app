@@ -171,6 +171,9 @@ class BackgroundModeController {
           amount: offer.amount,
           // Not carried by the in-app model; the service's own poll has it.
           paymentMode: '',
+          orderType: offer.orderType,
+          pickupAddress: offer.pickupAddress,
+          deliveryArea: deliveryAreaFor(offer.deliveryDistanceKm),
         ),
       );
     }

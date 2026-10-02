@@ -10,7 +10,6 @@ import '../../../core/router/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../core/services/fcm_service.dart';
 import '../../../presentation/providers/app_providers.dart';
 import '../../../shared/widgets/feedback_widgets.dart';
 import '../../../shared/widgets/premium_cards.dart';
@@ -19,7 +18,8 @@ import '../../../shared/widgets/premium_surfaces.dart';
 import '../../delivery/background/online_mode_prompts.dart';
 import '../../delivery/models/delivery_models.dart';
 import '../../delivery/providers/rider_delivery_provider.dart';
-import '../../delivery/widgets/incoming_order_request_sheet.dart';
+import '../../delivery/models/delivery_request_intent.dart';
+import '../../delivery/providers/request_notification_provider.dart';
 import '../../delivery/widgets/rider_location_status_card.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
@@ -35,9 +35,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(fcmServiceProvider).init();
-    });
   }
 
   @override
@@ -77,22 +74,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Listen for new incoming requests
-    ref.listen(
-      riderDeliveryControllerProvider.select((s) => s.pendingRequests),
-      (previous, next) {
-        if (next.isNotEmpty) {
-          final newRequests = next.where(
-            (r) =>
-                !(previous?.any((pr) => pr.requestId == r.requestId) ?? false),
-          );
-          for (var request in newRequests) {
-            IncomingOrderRequestSheet.show(context, request);
-          }
-        }
-      },
-    );
-
     final profileAsync = ref.watch(profileControllerProvider);
     final earningsAsync = ref.watch(earningsControllerProvider);
     ref.watch(deliveryControllerProvider);
@@ -411,10 +392,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                   child: GlassCard(
                     accent: AppColors.ember,
                     onTap: () {
-                      // Optionally show the first request in the list
-                      IncomingOrderRequestSheet.show(
-                        context,
-                        riderDeliveryState.pendingRequests.first,
+                      final request = riderDeliveryState.pendingRequests.first;
+                      ref
+                          .read(deliveryRequestIntentProvider.notifier)
+                          .state = DeliveryRequestIntent(
+                        requestId: request.requestId,
+                        orderId: request.orderId,
+                        expiresAt: request.expiresAt,
                       );
                     },
                     child: Row(

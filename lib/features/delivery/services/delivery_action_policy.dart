@@ -57,10 +57,6 @@ DeliveryAdvanceAction? nextDeliveryActionFor(ActiveDeliveryOrderModel order) {
           nextStatus: 'picked_up',
         );
       case 'picked_up':
-        return const DeliveryAdvanceAction(
-          label: 'On the way',
-          nextStatus: 'on_the_way',
-        );
       case 'on_the_way':
       case 'out_for_delivery':
         return const DeliveryAdvanceAction(
