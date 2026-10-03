@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/maps/map_capabilities.dart';
 import '../../../core/router/app_routes.dart';
 import '../../../core/services/map_launcher_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -57,6 +58,15 @@ class ActiveDeliveryScreen extends ConsumerWidget {
             AppSpacing.xl,
           ),
           children: [
+            if (ref.watch(googleMapsConfigProvider).requestsEmbeddedMap)
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  tooltip: 'Delivery map',
+                  icon: const Icon(Icons.map_outlined),
+                  onPressed: () => context.push(AppRoutes.navigation),
+                ),
+              ),
             // ── Order header ───────────────────────────────
             GlassCard(
               accent: AppColors.gold,

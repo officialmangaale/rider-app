@@ -1,5 +1,6 @@
 import '../../../core/network/api_client.dart';
 import '../models/delivery_models.dart';
+import '../models/delivery_route.dart';
 
 class RiderDeliveryApiService {
   const RiderDeliveryApiService(this._client);
@@ -87,6 +88,24 @@ class RiderDeliveryApiService {
       'GET',
       '/api/v1/orders/active',
       parser: (data) => ActiveDeliveryOrderModel.fromJson(_extractObject(data)),
+    );
+  }
+
+  Future<ApiEnvelope<DeliveryRouteModel>> getDeliveryRoute({
+    required ActiveDeliveryOrderModel order,
+    required double latitude,
+    required double longitude,
+  }) {
+    return _client.request<DeliveryRouteModel>(
+      'POST',
+      '/api/v1/riders/orders/${order.orderId}/route',
+      body: {
+        'origin': {'latitude': latitude, 'longitude': longitude},
+        'order_type': normalizeDeliveryOrderType(order.orderType),
+      },
+      parser: (data) => DeliveryRouteModel.fromJson(
+        DeliveryRouteModel.extractRouteObject(data),
+      ),
     );
   }
 

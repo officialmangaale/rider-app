@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/maps/map_capabilities.dart';
+import 'embedded_delivery_map.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../presentation/providers/app_providers.dart';
@@ -15,6 +17,9 @@ class NavigationScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (ref.watch(googleMapsConfigProvider).requestsEmbeddedMap) {
+      return const EmbeddedDeliveryMapScreen();
+    }
     final deliveryAsync = ref.watch(deliveryControllerProvider);
     final order = deliveryAsync.valueOrNull?.activeOrder;
 

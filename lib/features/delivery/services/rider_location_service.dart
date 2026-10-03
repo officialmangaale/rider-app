@@ -116,11 +116,13 @@ class RiderLocationService {
   StreamSubscription<Position>? _positionStream;
   Timer? _pollTimer;
   Position? _lastPosition;
+  final ValueNotifier<Position?> _positionListenable = ValueNotifier(null);
   bool _isActiveDelivery = false;
   bool _isPolling = false;
 
   bool get isTracking => _positionStream != null || _pollTimer != null;
   Position? get lastPosition => _lastPosition;
+  ValueListenable<Position?> get positionListenable => _positionListenable;
 
   Future<RiderLocationCheckResult> checkReadiness({
     bool requestPermission = false,
@@ -257,10 +259,13 @@ class RiderLocationService {
     _isPolling = false;
   }
 
-  void dispose() => stopTracking();
+  void dispose() {
+    stopTracking();
+    _positionListenable.dispose();
+  }
 
   void _handlePosition(Position position) {
-    _lastPosition = position;
+    _setLastPosition(position);
     _debugPosition('position stream', position);
     unawaited(onLocationUpdate(position));
   }
@@ -274,7 +279,7 @@ class RiderLocationService {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: settings,
       ).timeout(const Duration(seconds: 15));
-      _lastPosition = position;
+      _setLastPosition(position);
       _debugPosition('position poll', position);
       await onLocationUpdate(position);
     } on TimeoutException {
@@ -330,5 +335,10 @@ class RiderLocationService {
       );
       return true;
     }());
+  }
+
+  void _setLastPosition(Position position) {
+    _lastPosition = position;
+    _positionListenable.value = position;
   }
 }

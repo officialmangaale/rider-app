@@ -2,6 +2,7 @@ package com.rydex.rider.rydex_rider
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
@@ -13,6 +14,20 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.mangaale/maps_configuration")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "initialize") {
+                    result.notImplemented()
+                } else if (call.argument<Boolean>("enabled") != true) {
+                    result.success(false)
+                } else {
+                    @Suppress("DEPRECATION")
+                    val key = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+                        .metaData?.getString("com.google.android.geo.API_KEY")?.trim().orEmpty()
+                    result.success(key.isNotEmpty() && !key.startsWith("\${"))
+                }
+            }
 
         // Online-mode controls used by lib/features/delivery/background/rider_platform.dart.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PLATFORM_CHANNEL)

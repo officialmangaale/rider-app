@@ -34,6 +34,11 @@ abstract class MapLauncherService {
   });
 }
 
+/// Provider boundary for operational navigation; the current implementation
+/// continues to use external Maps deep links without a credential.
+typedef NavigationProvider = MapLauncherService;
+typedef ExternalNavigationProvider = UrlLauncherMapLauncherService;
+
 /// Whether [latitude]/[longitude] is a real position. 0,0 is what an unset
 /// coordinate parses to, not a place anyone delivers to.
 bool isUsableCoordinate(double latitude, double longitude) {
